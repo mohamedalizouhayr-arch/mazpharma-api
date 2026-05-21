@@ -1,8 +1,0 @@
-{
-  "name": "mazpharma/api",
-  "description": "API REST MAZ-Pharma — gestion pharmacies",
-  "type": "project",
-  "require": {
-    "php": ">=8.0"
-  }
-}
