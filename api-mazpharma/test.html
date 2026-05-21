@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>MAZ-Pharma — Console de test API</title>
+<style>
+  :root{
+    --primary:#0d9488;--primary-dark:#0f766e;--accent:#f97316;
+    --bg:#f1f5f9;--card:#fff;--txt:#0f172a;--muted:#64748b;--border:#e2e8f0;
+    --ok:#16a34a;--bad:#dc2626;--info:#3b82f6;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--txt);line-height:1.5;font-size:14px}
+  header{background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:white;padding:18px 24px}
+  header h1{margin:0;font-size:22px}
+  header .sub{opacity:.9;font-size:13px;margin-top:4px}
+  main{display:grid;grid-template-columns:320px 1fr;gap:16px;padding:16px;max-width:1500px;margin:0 auto}
+  @media(max-width:900px){main{grid-template-columns:1fr}}
+  .sidebar{background:white;border-radius:10px;padding:14px;height:fit-content;position:sticky;top:16px}
+  .sidebar h3{margin:0 0 8px;font-size:13px;color:var(--primary-dark);text-transform:uppercase;letter-spacing:.4px}
+  .endpoint{padding:8px 10px;border-radius:6px;cursor:pointer;font-size:12px;display:flex;align-items:center;gap:8px;margin-bottom:3px}
+  .endpoint:hover{background:#f1f5f9}
+  .endpoint.active{background:var(--primary);color:white}
+  .endpoint .verb{padding:1px 7px;border-radius:8px;font-size:10px;font-weight:700;font-family:Menlo,monospace}
+  .endpoint .verb.GET{background:#dbeafe;color:#1e40af}
+  .endpoint .verb.POST{background:#dcfce7;color:#166534}
+  .endpoint .verb.PUT{background:#fef3c7;color:#92400e}
+  .endpoint .verb.DELETE{background:#fee2e2;color:#991b1b}
+  .endpoint.active .verb{background:rgba(255,255,255,.2)!important;color:white!important}
+
+  .main-panel{background:white;border-radius:10px;padding:18px}
+  .config{background:#f8fafc;padding:10px 14px;border-radius:8px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:12px}
+  .config label{display:flex;flex-direction:column;gap:3px}
+  .config label span{font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase}
+  .config input{padding:6px 10px;border:1px solid var(--border);border-radius:5px;font-size:12px;min-width:300px}
+  .req-info{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+  .req-info .verb{padding:4px 10px;border-radius:6px;font-weight:800;font-family:Menlo,monospace;color:white;font-size:13px}
+  .req-info .verb.GET{background:#3b82f6}
+  .req-info .verb.POST{background:var(--ok)}
+  .req-info .verb.PUT{background:#f59e0b}
+  .req-info .verb.DELETE{background:var(--bad)}
+  .req-info .url{flex:1;font-family:Menlo,monospace;font-size:13px;color:var(--primary-dark);font-weight:600}
+  .params{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+  .params input,.params textarea{padding:6px 10px;border:1px solid var(--border);border-radius:5px;font-size:12px;font-family:Menlo,monospace}
+  .params label{font-size:11px;color:var(--muted);font-weight:600}
+  .params .full{grid-column:1/-1}
+  textarea{min-height:100px;width:100%}
+  button.go{background:var(--primary);color:white;border:none;padding:10px 20px;border-radius:6px;font-weight:700;cursor:pointer;font-size:13px}
+  button.go:hover{background:var(--primary-dark)}
+  button.go:disabled{opacity:.5;cursor:wait}
+  .response{background:#0f172a;color:#94f4d0;padding:14px;border-radius:8px;font-family:Menlo,monospace;font-size:11px;max-height:500px;overflow:auto;margin-top:14px;line-height:1.5;white-space:pre-wrap;word-break:break-all}
+  .response .status{display:inline-block;padding:2px 10px;border-radius:8px;font-weight:700;font-size:11px;margin-bottom:8px}
+  .response .status.ok{background:var(--ok);color:white}
+  .response .status.bad{background:var(--bad);color:white}
+  .response .meta{color:#64748b;font-size:10px;margin-bottom:6px}
+  details{margin-top:10px;font-size:12px;color:var(--muted)}
+  details summary{cursor:pointer;font-weight:600;color:var(--primary-dark)}
+  pre{background:#f8fafc;padding:10px;border-radius:6px;overflow-x:auto;font-size:11px}
+  .preset{display:inline-block;background:#f1f5f9;padding:3px 8px;border-radius:10px;font-size:10px;margin-right:4px;cursor:pointer;color:var(--muted)}
+  .preset:hover{background:var(--primary);color:white}
+  .token-info{background:#fef3c7;padding:6px 10px;border-radius:5px;font-size:11px;color:#92400e;margin-top:8px;font-family:Menlo,monospace;word-break:break-all}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🧪 Console de test — API MAZ-Pharma</h1>
+  <div class="sub">Testez chaque endpoint en un clic · Connecté à votre BD Railway <code>Stage2026</code></div>
+</header>
+
+<main>
+
+<aside class="sidebar">
+  <h3>📍 Endpoints</h3>
+  <div id="endpoints"></div>
+</aside>
+
+<section class="main-panel">
+  <div class="config">
+    <label style="flex:1">
+      <span>URL de base de l'API</span>
+      <input id="baseUrl" placeholder="http://localhost/api-mazpharma  ou  https://mazpharma-api.up.railway.app">
+    </label>
+    <label>
+      <span>Token (login → récupérer ici)</span>
+      <input id="token" placeholder="(vide ou Bearer xxx)">
+    </label>
+  </div>
+
+  <div class="req-info">
+    <span class="verb" id="cur-verb">GET</span>
+    <span class="url" id="cur-url">— sélectionnez un endpoint —</span>
+    <button class="go" id="btn-go" onclick="callApi()">▶ Envoyer</button>
+  </div>
+
+  <div id="cur-presets" style="margin-bottom:10px"></div>
+
+  <div class="params" id="params-area"></div>
+
+  <div class="response" id="response">Sélectionnez un endpoint à gauche, cliquez sur Envoyer.</div>
+
+  <details>
+    <summary>💡 Aide rapide</summary>
+    <ol>
+      <li>Renseignez l'URL de base (sans <code>/</code> final)</li>
+      <li>Pour les endpoints protégés : lancez <code>POST /auth.php?action=login</code> avec <code>{"login":"a.kamal","password":"demo123"}</code> → copiez le token retourné dans le champ Token en haut</li>
+      <li>Cliquez sur n'importe quel endpoint à gauche, les paramètres pertinents apparaissent</li>
+      <li>Cliquez sur les <span class="preset">presets</span> pour pré-remplir avec des valeurs réelles</li>
+    </ol>
+  </details>
+</section>
+
+</main>
+
+<script>
+const ENDPOINTS = [
+  {grp:"Auth",         verb:"POST",   url:"/auth.php?action=login",
+    body:'{"login":"a.kamal","password":"demo123"}', notes:"Renvoie un token à copier en haut"},
+  {grp:"Auth",         verb:"GET",    url:"/auth.php?action=me", auth:true},
+
+  {grp:"Produits",     verb:"GET",    url:"/produits.php",
+    params:[{k:"search", v:"DOLI"}, {k:"alerte", v:"0"}]},
+  {grp:"Produits",     verb:"GET",    url:"/produits.php?id=1"},
+  {grp:"Produits",     verb:"PUT",    url:"/produits.php?id=1", auth:true,
+    body:'{"Quantite_disponible":75}'},
+
+  {grp:"Fournisseurs", verb:"GET",    url:"/fournisseurs.php"},
+
+  {grp:"Ventes",       verb:"GET",    url:"/ventes.php"},
+  {grp:"Ventes",       verb:"GET",    url:"/ventes.php?id=1"},
+  {grp:"Ventes",       verb:"POST",   url:"/ventes.php", auth:true,
+    body:'{"id_personnel":1,"id_client":1,"id_medecin":1,"mode_paiement":"Especes","lignes":[{"id_produit":1,"qte":2},{"id_produit":5,"qte":1}]}'},
+
+  {grp:"BC",           verb:"GET",    url:"/bc.php",
+    params:[{k:"statut", v:"PROPOSEE"}]},
+  {grp:"BC",           verb:"GET",    url:"/bc.php?id=1"},
+  {grp:"BC",           verb:"POST",   url:"/bc.php", auth:true,
+    body:'{"id_fournisseur":4,"commentaire":"Reappro manuelle","lignes":[{"id_produit":4,"qte":30},{"id_produit":2,"qte":20}]}'},
+  {grp:"BC",           verb:"PUT",    url:"/bc.php?id=1&action=valider", auth:true},
+  {grp:"BC",           verb:"PUT",    url:"/bc.php?id=1&action=rejeter", auth:true,
+    body:'{"motif":"Budget mensuel depasse"}'},
+  {grp:"BC",           verb:"PUT",    url:"/bc.php?id=3&action=envoyer", auth:true},
+
+  {grp:"BL",           verb:"GET",    url:"/bl.php"},
+  {grp:"BL",           verb:"GET",    url:"/bl.php?id=1"},
+  {grp:"BL",           verb:"POST",   url:"/bl.php", auth:true,
+    body:'{"id_commande":4,"lignes":[{"id_produit":1,"qte_recue":100,"numero_lot":"LOT999888","date_peremption":"2027-12-31"},{"id_produit":5,"qte_recue":28,"numero_lot":"LOT999889","date_peremption":"2027-06-30"}]}'},
+
+  {grp:"KPI",          verb:"GET",    url:"/kpi.php?action=overview"},
+  {grp:"KPI",          verb:"GET",    url:"/kpi.php?action=by_statut"},
+  {grp:"KPI",          verb:"GET",    url:"/kpi.php?action=by_day"},
+  {grp:"KPI",          verb:"GET",    url:"/kpi.php?action=by_fournisseur"},
+  {grp:"KPI",          verb:"GET",    url:"/kpi.php?action=top_produits"},
+  {grp:"KPI",          verb:"GET",    url:"/kpi.php?action=alertes"},
+];
+
+const PRESETS_URL = ["http://localhost/api-mazpharma","http://localhost:8000"];
+
+let current = null;
+
+function renderSidebar() {
+  const groups = {};
+  ENDPOINTS.forEach((e,i) => {
+    if (!groups[e.grp]) groups[e.grp] = [];
+    groups[e.grp].push({...e, idx:i});
+  });
+  let html = "";
+  Object.keys(groups).forEach(g => {
+    html += `<h3 style="margin-top:12px">${g}</h3>`;
+    groups[g].forEach(e => {
+      html += `<div class="endpoint" onclick="selectEndpoint(${e.idx})" id="ep-${e.idx}">
+        <span class="verb ${e.verb}">${e.verb}</span>
+        <span style="font-family:Menlo,monospace;font-size:11px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.url}</span>
+        ${e.auth?'<span title="Auth requise">🔒</span>':''}
+      </div>`;
+    });
+  });
+  document.getElementById("endpoints").innerHTML = html;
+}
+
+function selectEndpoint(i) {
+  document.querySelectorAll(".endpoint").forEach(e => e.classList.remove("active"));
+  document.getElementById("ep-"+i).classList.add("active");
+  current = ENDPOINTS[i];
+  document.getElementById("cur-verb").textContent = current.verb;
+  document.getElementById("cur-verb").className = "verb " + current.verb;
+  document.getElementById("cur-url").textContent = current.url;
+  // Présets
+  let presetHtml = '<span style="font-size:11px;color:#64748b;margin-right:6px">Presets URL :</span>';
+  PRESETS_URL.forEach(p => presetHtml += `<span class="preset" onclick="document.getElementById('baseUrl').value='${p}'">${p}</span>`);
+  document.getElementById("cur-presets").innerHTML = presetHtml;
+  // Params
+  let html = "";
+  if (current.verb === "POST" || current.verb === "PUT") {
+    html += `<label class="full"><span>Body JSON</span><textarea id="body">${current.body || '{}'}</textarea></label>`;
+  } else {
+    html += '<div class="full" style="font-size:11px;color:#64748b">Pas de body pour cette requête.</div>';
+  }
+  document.getElementById("params-area").innerHTML = html;
+  document.getElementById("response").textContent = "Cliquez sur Envoyer pour exécuter la requête.";
+}
+
+async function callApi() {
+  if (!current) return;
+  const base = document.getElementById("baseUrl").value.trim().replace(/\/$/,'');
+  if (!base) { alert("Renseignez l'URL de base de l'API"); return; }
+  const token = document.getElementById("token").value.trim();
+  const headers = {"Content-Type":"application/json"};
+  if (token) headers["Authorization"] = token.startsWith("Bearer ") ? token : "Bearer " + token;
+
+  const url = base + current.url;
+  const opts = {method: current.verb, headers};
+  if (current.verb === "POST" || current.verb === "PUT") {
+    const bodyEl = document.getElementById("body");
+    if (bodyEl) opts.body = bodyEl.value;
+  }
+
+  const respEl = document.getElementById("response");
+  respEl.textContent = "⏳ Requête en cours...";
+  document.getElementById("btn-go").disabled = true;
+  const t0 = performance.now();
+  try {
+    const r = await fetch(url, opts);
+    const txt = await r.text();
+    let parsed;
+    try { parsed = JSON.stringify(JSON.parse(txt), null, 2); }
+    catch(e) { parsed = txt; }
+    const dur = (performance.now() - t0).toFixed(0);
+    const cls = r.ok ? "ok" : "bad";
+    let auto = "";
+    // Auto-extract token si login
+    if (r.ok && current.url.includes("auth.php") && current.url.includes("login")) {
+      try {
+        const data = JSON.parse(txt);
+        if (data.token) {
+          document.getElementById("token").value = "Bearer " + data.token;
+          auto = `<div class="token-info">✓ Token enregistré automatiquement en haut.</div>`;
+        }
+      } catch(e) {}
+    }
+    respEl.innerHTML = `<div><span class="status ${cls}">${r.status} ${r.statusText}</span><span class="meta"> ${dur} ms · ${txt.length} octets</span></div>${auto}${escapeHtml(parsed)}`;
+  } catch (e) {
+    respEl.innerHTML = `<span class="status bad">RESEAU</span>\n${e.message}\n\nVérifiez :\n - l'URL de base est correcte\n - le serveur PHP tourne\n - CORS est autorisé`;
+  } finally {
+    document.getElementById("btn-go").disabled = false;
+  }
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[c]);
+}
+
+renderSidebar();
+selectEndpoint(0);
+</script>
+
+</body>
+</html>
