@@ -1,0 +1,8 @@
+# Nixpacks - laisse PHP en version par defaut, on ne specifie plus de version explicite
+providers = ["php"]
+
+[phases.install]
+cmds = ["composer install --no-dev --optimize-autoloader --no-interaction || true"]
+
+[start]
+cmd = "php -S 0.0.0.0:$PORT -t ."
