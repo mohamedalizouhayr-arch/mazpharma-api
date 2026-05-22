@@ -80,7 +80,7 @@ switch ($action) {
     case 'by_fournisseur':
         $stmt = $pdo->query("
            SELECT f.id_fournisseur, f.Nom AS fournisseur,
-                  COUNT(c.id_commande) AS nb_bc,
+                  COUNT(CASE WHEN c.statut <> 'ANNULEE' THEN 1 END) AS nb_bc,
                   SUM(c.Montant_total_commande) AS montant_total,
                   SUM(CASE WHEN c.statut = 'LIVREE'         THEN 1 ELSE 0 END) AS nb_livrees,
                   SUM(CASE WHEN c.statut = 'LIVREE_PARTIEL' THEN 1 ELSE 0 END) AS nb_livrees_partiel,
