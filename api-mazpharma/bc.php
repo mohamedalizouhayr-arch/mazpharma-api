@@ -6,6 +6,9 @@ $action = q('action');
 
 // ----- GET liste -----
 if (method() === 'GET' && !$id) {
+    $payload      = requireRole(['ADMIN', 'USER', 'SUPERADMIN']);
+    $id_pharmacie = getPharmacieId($pdo, $payload);
+
     $statut = q('statut');
     $four   = q('fournisseur');
     $sql = "
@@ -22,6 +25,11 @@ if (method() === 'GET' && !$id) {
         WHERE 1=1
     ";
     $params = [];
+    // Filtre par pharmacie : ADMIN/USER voient seulement leur pharmacie, SUPERADMIN voit tout
+    if ($id_pharmacie !== null) {
+        $sql .= " AND c.Id_pharmacie = :id_ph";
+        $params[':id_ph'] = $id_pharmacie;
+    }
     if ($statut) { $sql .= " AND c.statut = :st";  $params[':st'] = $statut; }
     if ($four)   { $sql .= " AND c.id_fournisseur = :f"; $params[':f']  = $four; }
     $sql .= " ORDER BY c.Date_et_heure_de_la_commande DESC LIMIT 100";
@@ -74,7 +82,8 @@ if (method() === 'GET' && $id && !$action) {
 // ----- POST création BC manuelle -----
 // Body: { id_fournisseur, lignes: [{id_produit, qte, pa?}], commentaire? }
 if (method() === 'POST') {
-    requireRole(['USER','ADMIN','SUPERADMIN']);
+    $payload      = requireRole(['USER','ADMIN','SUPERADMIN']);
+    $id_pharmacie = getPharmacieId($pdo, $payload) ?? 1;
     $b = jsonBody();
     if (empty($b['id_fournisseur']) || empty($b['lignes'])) jsonResponse(['error' => 'Fournisseur et lignes requis'], 400);
 
@@ -90,11 +99,12 @@ if (method() === 'POST') {
         $stmt = $pdo->prepare("
           INSERT INTO Commande(reference_bc, id_fournisseur, Id_pharmacie, statut,
                                Montant_total_commande, auto_generee, commentaire)
-          VALUES(:ref, :f, 1, 'PROPOSEE', :mt, 0, :c)
+          VALUES(:ref, :f, :ph, 'PROPOSEE', :mt, 0, :c)
         ");
         $stmt->execute([
             ':ref' => $ref,
             ':f'   => $b['id_fournisseur'],
+            ':ph'  => $id_pharmacie,
             ':mt'  => round($total, 2),
             ':c'   => $b['commentaire'] ?? null
         ]);
