@@ -128,42 +128,91 @@ if (method() === 'POST') {
     }
 }
 
-// ----- DELETE suppression pharmacie (SUPERADMIN uniquement) -----
+// ----- DELETE suppression pharmacie (SUPERADMIN uniquement) — cascade complète -----
 if (method() === 'DELETE') {
     requireRole(['SUPERADMIN']);
     $id = (int)q('id');
     if (!$id) jsonResponse(['error' => 'id requis'], 400);
 
-    // Vérifier que la pharmacie existe
-    $stmt = $pdo->prepare("SELECT Id_pharmacie FROM Pharmacie WHERE Id_pharmacie = ?");
+    // Récupérer la pharmacie + son id_adresse
+    $stmt = $pdo->prepare("SELECT Id_pharmacie, id_adresse FROM Pharmacie WHERE Id_pharmacie = ?");
     $stmt->execute([$id]);
-    if (!$stmt->fetch()) jsonResponse(['error' => 'Pharmacie introuvable'], 404);
+    $pharmacie = $stmt->fetch();
+    if (!$pharmacie) jsonResponse(['error' => 'Pharmacie introuvable'], 404);
+    $id_adresse = (int)($pharmacie['id_adresse'] ?? 0);
 
-    // Vérifier s'il y a des dépendances (comptes, commandes, etc.)
+    $pdo->beginTransaction();
     try {
-        $checks = [
-            "SELECT COUNT(*) FROM Admin     WHERE Id_pharmacie = ?" => "des administrateurs",
-            "SELECT COUNT(*) FROM Personnel WHERE Id_pharmacie = ?" => "du personnel",
-            "SELECT COUNT(*) FROM Commande  WHERE Id_pharmacie = ?" => "des commandes",
-            // Vente est liée à la pharmacie via le personnel (pas de Id_pharmacie direct)
-            "SELECT COUNT(*) FROM Vente v JOIN Personnel p ON p.id_personnel = v.id_personnel WHERE p.Id_pharmacie = ?" => "des ventes",
-        ];
-        foreach ($checks as $sql => $label) {
-            $s = $pdo->prepare($sql);
-            $s->execute([$id]);
-            if ((int)$s->fetchColumn() > 0) {
-                jsonResponse(['error' => "Impossible de supprimer : cette pharmacie a $label associés."], 409);
+        // ── 1. Récupérer les IDs utiles ──────────────────────────────
+        $adminComptes = $pdo->prepare("SELECT id_compte FROM Admin WHERE Id_pharmacie = ?");
+        $adminComptes->execute([$id]);
+        $adminCompteIds = $adminComptes->fetchAll(PDO::FETCH_COLUMN);
+
+        $persoStmt = $pdo->prepare("SELECT id_compte, id_personnel FROM Personnel WHERE Id_pharmacie = ?");
+        $persoStmt->execute([$id]);
+        $persoRows      = $persoStmt->fetchAll();
+        $persoCompteIds = array_column($persoRows, 'id_compte');
+        $persoIds       = array_column($persoRows, 'id_personnel');
+
+        $cmdStmt = $pdo->prepare("SELECT id_commande FROM Commande WHERE Id_pharmacie = ?");
+        $cmdStmt->execute([$id]);
+        $commandeIds = $cmdStmt->fetchAll(PDO::FETCH_COLUMN);
+
+        // ── 2. Supprimer commandes et BL ─────────────────────────────
+        if (!empty($commandeIds)) {
+            $inCmd = implode(',', array_fill(0, count($commandeIds), '?'));
+
+            // Lignes BL
+            $blStmt = $pdo->prepare("SELECT id_bl FROM Bon_de_livraison WHERE id_commande IN ($inCmd)");
+            $blStmt->execute($commandeIds);
+            $blIds = $blStmt->fetchAll(PDO::FETCH_COLUMN);
+            if (!empty($blIds)) {
+                $inBl = implode(',', array_fill(0, count($blIds), '?'));
+                $pdo->prepare("DELETE FROM Ligne_BL WHERE id_bl IN ($inBl)")->execute($blIds);
+            }
+
+            $pdo->prepare("DELETE FROM Bon_de_livraison WHERE id_commande IN ($inCmd)")->execute($commandeIds);
+            $pdo->prepare("DELETE FROM Ligne_commande   WHERE id_commande IN ($inCmd)")->execute($commandeIds);
+            $pdo->prepare("DELETE FROM Commande WHERE Id_pharmacie = ?")->execute([$id]);
+        }
+
+        // ── 3. Supprimer ventes du personnel de cette pharmacie ───────
+        if (!empty($persoIds)) {
+            $inPerso = implode(',', array_fill(0, count($persoIds), '?'));
+            $venteStmt = $pdo->prepare("SELECT id_vente FROM Vente WHERE id_personnel IN ($inPerso)");
+            $venteStmt->execute($persoIds);
+            $venteIds = $venteStmt->fetchAll(PDO::FETCH_COLUMN);
+            if (!empty($venteIds)) {
+                $inVente = implode(',', array_fill(0, count($venteIds), '?'));
+                $pdo->prepare("DELETE FROM Concerner_ WHERE id_vente IN ($inVente)")->execute($venteIds);
+                $pdo->prepare("DELETE FROM Vente WHERE id_vente IN ($inVente)")->execute($venteIds);
             }
         }
-    } catch (Exception $e) {
-        jsonResponse(['error' => 'Erreur lors de la vérification des dépendances : ' . $e->getMessage()], 500);
-    }
 
-    try {
+        // ── 4. Supprimer Personnel et Admin ──────────────────────────
+        $pdo->prepare("DELETE FROM Personnel WHERE Id_pharmacie = ?")->execute([$id]);
+        $pdo->prepare("DELETE FROM Admin     WHERE Id_pharmacie = ?")->execute([$id]);
+
+        // ── 5. Supprimer les comptes associés ────────────────────────
+        $tousComptes = array_values(array_filter(array_merge($adminCompteIds, $persoCompteIds)));
+        if (!empty($tousComptes)) {
+            $inC = implode(',', array_fill(0, count($tousComptes), '?'));
+            $pdo->prepare("DELETE FROM Compte WHERE id_compte IN ($inC)")->execute($tousComptes);
+        }
+
+        // ── 6. Supprimer la pharmacie ────────────────────────────────
         $pdo->prepare("DELETE FROM Pharmacie WHERE Id_pharmacie = ?")->execute([$id]);
+
+        // ── 7. Supprimer l'adresse ───────────────────────────────────
+        if ($id_adresse) {
+            $pdo->prepare("DELETE FROM Adresse WHERE id_adresse = ?")->execute([$id_adresse]);
+        }
+
+        $pdo->commit();
         jsonResponse(['ok' => true]);
     } catch (Exception $e) {
-        jsonResponse(['error' => 'Erreur lors de la suppression : ' . $e->getMessage()], 500);
+        $pdo->rollBack();
+        jsonResponse(['error' => $e->getMessage()], 500);
     }
 }
 
