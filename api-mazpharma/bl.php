@@ -129,6 +129,20 @@ if (method() === 'POST') {
             $stmtLigne->execute([$id_bl, $l['id_produit'], $l['cmd'], $l['rec']]);
         }
 
+        // Si un produit reçu n'est pas encore dans le stock de la pharmacie, on l'y rattache
+        // avant que tg_maj_stock_bl ne mette à jour Quantite_disponible
+        $stmtPh = $pdo->prepare("SELECT Id_pharmacie FROM Commande WHERE id_commande = ?");
+        $stmtPh->execute([$b['id_commande']]);
+        $id_pharmacie_bl = $stmtPh->fetchColumn();
+        if ($id_pharmacie_bl) {
+            $stmtPro = $pdo->prepare("INSERT IGNORE INTO Proposer(Id_pharmacie, id_produit) VALUES(?,?)");
+            foreach ($lignesFinales as $l) {
+                if ($l['rec'] > 0) {
+                    $stmtPro->execute([$id_pharmacie_bl, $l['id_produit']]);
+                }
+            }
+        }
+
         // Passer CONFORME ou ECART (déclenche tg_maj_stock_bl → stock + statut BC)
         $newStatut = $hasEcart ? 'ECART' : 'CONFORME';
         $pdo->prepare("
