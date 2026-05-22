@@ -24,8 +24,8 @@ if (method() === 'GET' && !$id) {
                 ELSE 'OK'
               END AS statut_stock
          FROM Produit p
-         JOIN Proposer pr  ON pr.id_produit   = p.id_produit
-         JOIN Pharmacie ph ON ph.Id_pharmacie = pr.Id_pharmacie
+         LEFT JOIN Proposer pr  ON pr.id_produit   = p.id_produit
+         LEFT JOIN Pharmacie ph ON ph.Id_pharmacie = pr.Id_pharmacie
         WHERE 1=1
     ";
     $params = [];
