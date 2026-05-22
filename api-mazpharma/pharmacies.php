@@ -42,9 +42,25 @@ if (method() === 'POST') {
     $nom = trim($b['nom'] ?? '');
     if (!$nom) jsonResponse(['error' => 'Le nom de la pharmacie est requis'], 400);
 
+    // Validation du compte administrateur
+    $admin_login    = trim($b['admin_login']    ?? '');
+    $admin_password = trim($b['admin_password'] ?? '');
+    $admin_prenom   = trim($b['admin_prenom']   ?? '');
+    $admin_nom_val  = trim($b['admin_nom']      ?? '');
+    $admin_email    = trim($b['admin_email']    ?? '');
+
+    if (!$admin_login)    jsonResponse(['error' => 'Le login de l\'administrateur est requis'], 400);
+    if (!$admin_password) jsonResponse(['error' => 'Le mot de passe de l\'administrateur est requis'], 400);
+    if (strlen($admin_password) < 6) jsonResponse(['error' => 'Le mot de passe doit contenir au moins 6 caractères'], 400);
+
+    // Vérifier que le login n'est pas déjà pris
+    $check = $pdo->prepare("SELECT id_compte FROM Compte WHERE Nom_d_utilisateur = ?");
+    $check->execute([$admin_login]);
+    if ($check->fetch()) jsonResponse(['error' => 'Ce login est déjà utilisé'], 409);
+
     $pdo->beginTransaction();
     try {
-        // Créer l'adresse si une ville est fournie
+        // 1. Créer l'adresse si une ville est fournie
         $id_adresse = null;
         $ville      = trim($b['ville'] ?? '');
         if ($ville) {
@@ -61,6 +77,7 @@ if (method() === 'POST') {
             $id_adresse = (int)$pdo->lastInsertId();
         }
 
+        // 2. Créer la pharmacie
         $pdo->prepare("
             INSERT INTO Pharmacie(Nom, Numero_de_telephone, nom_du_proprietaire, id_adresse, active)
             VALUES(:nom, :tel, :prop, :adr, 1)
@@ -70,10 +87,37 @@ if (method() === 'POST') {
             ':prop' => trim($b['proprietaire'] ?? '') ?: null,
             ':adr'  => $id_adresse,
         ]);
-        $id = (int)$pdo->lastInsertId();
+        $id_pharmacie = (int)$pdo->lastInsertId();
+
+        // 3. Créer le compte ADMIN
+        $hash = password_hash($admin_password, PASSWORD_DEFAULT);
+        $pdo->prepare("
+            INSERT INTO Compte(Nom_d_utilisateur, Mots_de_passe, Role, email, actif)
+            VALUES(:login, :pwd, 'ADMIN', :email, 1)
+        ")->execute([
+            ':login' => $admin_login,
+            ':pwd'   => $hash,
+            ':email' => $admin_email ?: null,
+        ]);
+        $id_compte = (int)$pdo->lastInsertId();
+
+        // 4. Créer le profil Admin lié à la pharmacie
+        $pdo->prepare("
+            INSERT INTO Admin(id_compte, Id_pharmacie, prenom, nom)
+            VALUES(:id_compte, :id_pharmacie, :prenom, :nom)
+        ")->execute([
+            ':id_compte'    => $id_compte,
+            ':id_pharmacie' => $id_pharmacie,
+            ':prenom'       => $admin_prenom ?: null,
+            ':nom'          => $admin_nom_val ?: null,
+        ]);
 
         $pdo->commit();
-        jsonResponse(['id_pharmacie' => $id, 'nom' => $nom], 201);
+        jsonResponse([
+            'id_pharmacie' => $id_pharmacie,
+            'nom'          => $nom,
+            'admin_login'  => $admin_login,
+        ], 201);
     } catch (Exception $e) {
         $pdo->rollBack();
         jsonResponse(['error' => $e->getMessage()], 400);
