@@ -33,13 +33,9 @@ if (method() === 'GET' && !q('id')) {
     if ($from) { $sql .= " AND v.date_et_heure_de_la_vente >= :from"; $params[':from'] = $from; }
     if ($to)   { $sql .= " AND v.date_et_heure_de_la_vente <  :to";   $params[':to']   = $to;   }
     $sql .= " ORDER BY v.date_et_heure_de_la_vente DESC LIMIT 200";
-    try {
-        $stmt = $pdo->prepare($sql);
-        $stmt->execute($params);
-        jsonResponse(['ventes' => $stmt->fetchAll()]);
-    } catch (Exception $e) {
-        jsonResponse(['error' => $e->getMessage(), 'sql' => $sql], 500);
-    }
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    jsonResponse(['ventes' => $stmt->fetchAll()]);
 }
 
 // ----- GET detail d'une vente -----
