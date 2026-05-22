@@ -70,6 +70,17 @@ if (method() === 'POST') {
     jsonResponse(['id' => $pdo->lastInsertId()], 201);
 }
 
+// ----- PUT seuil global : applique seuil_alerte_manuel a TOUS les produits -----
+if (method() === 'PUT' && !$id && q('action') === 'seuil_global') {
+    requireRole(['ADMIN', 'SUPERADMIN']);
+    $b     = jsonBody();
+    $seuil = (int)($b['seuil'] ?? 0);
+    if ($seuil <= 0) jsonResponse(['error' => 'Seuil invalide'], 400);
+    $stmt = $pdo->prepare("UPDATE Produit SET seuil_alerte_manuel = :s WHERE actif = 1");
+    $stmt->execute([':s' => $seuil]);
+    jsonResponse(['updated' => $stmt->rowCount()]);
+}
+
 // ----- PUT MAJ stock ou seuil -----
 if (method() === 'PUT' && $id) {
     requireRole(['ADMIN','SUPERADMIN','USER']);
