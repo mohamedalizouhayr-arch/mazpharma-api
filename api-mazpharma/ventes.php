@@ -8,7 +8,8 @@ require_once __DIR__ . '/_config.php';
 
 // ----- GET liste -----
 if (method() === 'GET' && !q('id')) {
-    requireRole(['ADMIN', 'USER', 'SUPERADMIN']);
+    $payload      = requireRole(['ADMIN', 'USER', 'SUPERADMIN']);
+    $id_pharmacie = getPharmacieId($pdo, $payload);
     $from = q('from');
     $to   = q('to');
     $sql = "
@@ -24,6 +25,11 @@ if (method() === 'GET' && !q('id')) {
         WHERE 1=1
     ";
     $params = [];
+    // Filtre par pharmacie via table Realiser (ADMIN/USER — SUPERADMIN voit tout)
+    if ($id_pharmacie !== null) {
+        $sql .= " AND v.id_vente IN (SELECT id_vente FROM Realiser WHERE Id_pharmacie = :id_ph)";
+        $params[':id_ph'] = $id_pharmacie;
+    }
     if ($from) { $sql .= " AND v.date_et_heure_de_la_vente >= :from"; $params[':from'] = $from; }
     if ($to)   { $sql .= " AND v.date_et_heure_de_la_vente <  :to";   $params[':to']   = $to;   }
     $sql .= " ORDER BY v.date_et_heure_de_la_vente DESC LIMIT 200";
@@ -124,12 +130,12 @@ if (method() === 'POST') {
             $stmt->execute([':ph' => $id_pharmacie]);
             $pid = $stmt->fetchColumn();
             if ($pid) $id_personnel = (int)$pid;
-        } catch (Exception $e) { /* table Personnel inaccessible */ }
+        } catch (Exception $e) { }
     }
 
     // Si toujours rien, erreur claire
     if (!$id_personnel) {
-        jsonResponse(['error' => 'Impossible de determiner le personnel pour ce compte (id_compte: ' . $payload['id'] . ')'], 403);
+        jsonResponse(['error' => 'Impossible de determiner le personnel pour ce compte'], 403);
     }
 
     // client par nom/prenom — Anonyme si champ vide (id_client NOT NULL)
