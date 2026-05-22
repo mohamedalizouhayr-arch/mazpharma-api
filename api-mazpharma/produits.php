@@ -134,15 +134,17 @@ if (method() === 'PUT' && !$id && q('action') === 'seuil_global') {
 
     if ($id_pharmacie !== null) {
         // ADMIN : seulement les produits de sa pharmacie
+        // On remet seuil_alerte_manuel à NULL pour que le seuil global reprenne le dessus
         $stmt = $pdo->prepare("
-            UPDATE Produit SET seuil_min_manuel = :s
+            UPDATE Produit
+            SET seuil_min_manuel = :s, seuil_alerte_manuel = NULL
             WHERE actif = 1
             AND id_produit IN (SELECT id_produit FROM Proposer WHERE Id_pharmacie = :ph)
         ");
         $stmt->execute([':s' => $seuil, ':ph' => $id_pharmacie]);
     } else {
         // SUPERADMIN : tous les produits
-        $stmt = $pdo->prepare("UPDATE Produit SET seuil_min_manuel = :s WHERE actif = 1");
+        $stmt = $pdo->prepare("UPDATE Produit SET seuil_min_manuel = :s, seuil_alerte_manuel = NULL WHERE actif = 1");
         $stmt->execute([':s' => $seuil]);
     }
     jsonResponse(['updated' => $stmt->rowCount()]);
