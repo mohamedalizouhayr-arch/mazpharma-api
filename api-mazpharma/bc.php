@@ -138,6 +138,13 @@ if (method() === 'PUT' && $id) {
                 ->execute([$id]);
             jsonResponse(['ok' => true, 'nouveau_statut' => 'ENVOYEE']);
 
+        case 'annuler':
+            requireRole(['ADMIN','SUPERADMIN','USER']);
+            if ($bc['statut'] !== 'PROPOSEE') jsonResponse(['error' => 'Seules les commandes proposées peuvent être annulées'], 400);
+            $pdo->prepare("UPDATE Commande SET statut='ANNULEE' WHERE id_commande=?")
+                ->execute([$id]);
+            jsonResponse(['ok' => true, 'nouveau_statut' => 'ANNULEE']);
+
         default:
             jsonResponse(['error' => "Action inconnue: $action"], 400);
     }
