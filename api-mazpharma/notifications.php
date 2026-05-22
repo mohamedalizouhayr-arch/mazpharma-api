@@ -7,27 +7,10 @@ require_once __DIR__ . '/_config.php';
 // PUT  /notifications.php?id=N&action=rejeter -> rejeter la notif
 // PUT  /notifications.php?id=N&action=lue    -> marquer comme lue
 
-// ----- helper : trouver Id_pharmacie depuis id_compte -----
-function getPharmacieId(PDO $pdo, int $id_compte): int {
-    try {
-        $s = $pdo->prepare("SELECT Id_pharmacie FROM Personnel WHERE id_compte = :id LIMIT 1");
-        $s->execute([':id' => $id_compte]);
-        $ph = $s->fetchColumn();
-        if ($ph) return (int)$ph;
-    } catch (Exception $e) {}
-    try {
-        $s = $pdo->prepare("SELECT Id_pharmacie FROM Admin WHERE id_compte = :id LIMIT 1");
-        $s->execute([':id' => $id_compte]);
-        $ph = $s->fetchColumn();
-        if ($ph) return (int)$ph;
-    } catch (Exception $e) {}
-    return 1;
-}
-
 // ----- GET liste -----
 if (method() === 'GET') {
     $payload      = requireRole(['USER', 'ADMIN', 'SUPERADMIN']);
-    $id_pharmacie = getPharmacieId($pdo, $payload['id']);
+    $id_pharmacie = getPharmacieId($pdo, $payload) ?? 1;
 
     $stmt = $pdo->prepare("
         SELECT n.id_notif, n.titre, n.message, n.type, n.statut,
@@ -53,7 +36,7 @@ if (method() === 'POST' && q('action') === 'check') {
 
     if (empty($id_produits)) jsonResponse(['created' => 0]);
 
-    $id_pharmacie = getPharmacieId($pdo, $payload['id']);
+    $id_pharmacie = getPharmacieId($pdo, $payload) ?? 1;
 
     $in   = implode(',', array_fill(0, count($id_produits), '?'));
     $stmt = $pdo->prepare("
