@@ -92,22 +92,31 @@ if (method() === 'DELETE') {
     if (!$stmt->fetch()) jsonResponse(['error' => 'Pharmacie introuvable'], 404);
 
     // Vérifier s'il y a des dépendances (comptes, commandes, etc.)
-    $checks = [
-        "SELECT COUNT(*) FROM Admin     WHERE Id_pharmacie = ?" => "des administrateurs",
-        "SELECT COUNT(*) FROM Personnel WHERE Id_pharmacie = ?" => "du personnel",
-        "SELECT COUNT(*) FROM Commande  WHERE Id_pharmacie = ?" => "des commandes",
-        "SELECT COUNT(*) FROM Vente     WHERE Id_pharmacie = ?" => "des ventes",
-    ];
-    foreach ($checks as $sql => $label) {
-        $s = $pdo->prepare($sql);
-        $s->execute([$id]);
-        if ((int)$s->fetchColumn() > 0) {
-            jsonResponse(['error' => "Impossible de supprimer : cette pharmacie a $label associés."], 409);
+    try {
+        $checks = [
+            "SELECT COUNT(*) FROM Admin     WHERE Id_pharmacie = ?" => "des administrateurs",
+            "SELECT COUNT(*) FROM Personnel WHERE Id_pharmacie = ?" => "du personnel",
+            "SELECT COUNT(*) FROM Commande  WHERE Id_pharmacie = ?" => "des commandes",
+            // Vente est liée à la pharmacie via le personnel (pas de Id_pharmacie direct)
+            "SELECT COUNT(*) FROM Vente v JOIN Personnel p ON p.id_personnel = v.id_personnel WHERE p.Id_pharmacie = ?" => "des ventes",
+        ];
+        foreach ($checks as $sql => $label) {
+            $s = $pdo->prepare($sql);
+            $s->execute([$id]);
+            if ((int)$s->fetchColumn() > 0) {
+                jsonResponse(['error' => "Impossible de supprimer : cette pharmacie a $label associés."], 409);
+            }
         }
+    } catch (Exception $e) {
+        jsonResponse(['error' => 'Erreur lors de la vérification des dépendances : ' . $e->getMessage()], 500);
     }
 
-    $pdo->prepare("DELETE FROM Pharmacie WHERE Id_pharmacie = ?")->execute([$id]);
-    jsonResponse(['ok' => true]);
+    try {
+        $pdo->prepare("DELETE FROM Pharmacie WHERE Id_pharmacie = ?")->execute([$id]);
+        jsonResponse(['ok' => true]);
+    } catch (Exception $e) {
+        jsonResponse(['error' => 'Erreur lors de la suppression : ' . $e->getMessage()], 500);
+    }
 }
 
 jsonResponse(['error' => 'Méthode non supportée'], 405);
