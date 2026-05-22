@@ -72,71 +72,34 @@ if (method() === 'GET' && q('id')) {
 }
 
 // ----- POST nouvelle vente -----
+// Seul le personnel (USER) peut enregistrer une vente
 if (method() === 'POST') {
-    try {
-    $payload = requireRole(['USER', 'ADMIN', 'SUPERADMIN']);
+    $payload = requireRole(['USER', 'ADMIN']);
     $b = jsonBody();
     if (empty($b['lignes']) || !is_array($b['lignes'])) {
         jsonResponse(['error' => 'Lignes manquantes'], 400);
     }
 
-    // Trouver id_personnel + id_pharmacie depuis le compte connecte
+    // USER : lookup direct par id_compte dans Personnel
+    // ADMIN : prend le premier Personnel de sa pharmacie (son nom apparaît sur la vente)
     $id_personnel = null;
-    $id_pharmacie = 1;
+    $id_pharmacie = getPharmacieId($pdo, $payload);
+    if (!$id_pharmacie) jsonResponse(['error' => 'Pharmacie introuvable pour ce compte'], 403);
 
-    // Tentative 1 : Personnel a une colonne id_compte
-    try {
-        $stmt = $pdo->prepare("SELECT id_personnel, Id_pharmacie FROM Personnel WHERE id_compte = :id LIMIT 1");
+    if ($payload['role'] === 'USER') {
+        $stmt = $pdo->prepare("SELECT id_personnel FROM Personnel WHERE id_compte = :id LIMIT 1");
         $stmt->execute([':id' => $payload['id']]);
-        $row = $stmt->fetch();
-        if ($row) {
-            $id_personnel = (int)$row['id_personnel'];
-            $id_pharmacie = (int)$row['Id_pharmacie'];
-        }
-    } catch (Exception $e) { /* colonne id_compte absente dans Personnel */ }
-
-    // Tentative 2 : recuperer infos Admin (Nom, Prenom, Id_pharmacie)
-    if (!$id_personnel) {
-        try {
-            $stmt = $pdo->prepare("SELECT Id_pharmacie, Nom, Prenom FROM Admin WHERE id_compte = :id LIMIT 1");
-            $stmt->execute([':id' => $payload['id']]);
-            $adm = $stmt->fetch();
-            if ($adm) {
-                $id_pharmacie = (int)$adm['Id_pharmacie'];
-                $nomAdm    = $adm['Nom']    ?? null;
-                $prenomAdm = $adm['Prenom'] ?? null;
-                // chercher un Personnel avec ce nom dans cette pharmacie
-                if ($nomAdm) {
-                    $stmt2 = $pdo->prepare("SELECT id_personnel FROM Personnel WHERE Nom = :n AND Prenom = :p AND Id_pharmacie = :ph LIMIT 1");
-                    $stmt2->execute([':n' => $nomAdm, ':p' => $prenomAdm, ':ph' => $id_pharmacie]);
-                    $pid = $stmt2->fetchColumn();
-                    if ($pid) {
-                        $id_personnel = (int)$pid;
-                    } else {
-                        // creer un Personnel pour cet admin s'il n'existe pas encore
-                        $stmt3 = $pdo->prepare("INSERT INTO Personnel(Nom, Prenom, Id_pharmacie) VALUES(:n, :p, :ph)");
-                        $stmt3->execute([':n' => $nomAdm, ':p' => $prenomAdm, ':ph' => $id_pharmacie]);
-                        $id_personnel = (int)$pdo->lastInsertId();
-                    }
-                }
-            }
-        } catch (Exception $e) { /* Admin sans Nom/Prenom ou inaccessible */ }
+        $id_personnel = (int)$stmt->fetchColumn();
     }
 
-    // Tentative 3 : prendre le premier Personnel de la pharmacie
+    // Pour ADMIN ou si USER sans entrée Personnel : premier personnel de la pharmacie
     if (!$id_personnel) {
-        try {
-            $stmt = $pdo->prepare("SELECT id_personnel FROM Personnel WHERE Id_pharmacie = :ph LIMIT 1");
-            $stmt->execute([':ph' => $id_pharmacie]);
-            $pid = $stmt->fetchColumn();
-            if ($pid) $id_personnel = (int)$pid;
-        } catch (Exception $e) { }
+        $stmt = $pdo->prepare("SELECT id_personnel FROM Personnel WHERE Id_pharmacie = :ph LIMIT 1");
+        $stmt->execute([':ph' => $id_pharmacie]);
+        $id_personnel = (int)$stmt->fetchColumn();
     }
 
-    // Si toujours rien, erreur claire
-    if (!$id_personnel) {
-        jsonResponse(['error' => 'Impossible de determiner le personnel pour ce compte'], 403);
-    }
+    if (!$id_personnel) jsonResponse(['error' => 'Aucun personnel trouvé pour cette pharmacie'], 403);
 
     // client par nom/prenom — Anonyme si champ vide (id_client NOT NULL)
     $nomCli    = trim($b['client_nom']    ?? '');
@@ -196,10 +159,6 @@ if (method() === 'POST') {
     } catch (Exception $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         jsonResponse(['error' => $e->getMessage()], 400);
-    }
-
-    } catch (Exception $e) {
-        jsonResponse(['error' => $e->getMessage()], 500);
     }
 }
 
