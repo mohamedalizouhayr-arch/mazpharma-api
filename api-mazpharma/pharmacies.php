@@ -60,27 +60,22 @@ if (method() === 'POST') {
 
     $pdo->beginTransaction();
     try {
-        // 1. Calcul du prochain id_adresse (pas d'AUTO_INCREMENT sur cette colonne)
         $ville = trim($b['ville'] ?? '');
-        $stmt_max = $pdo->prepare("SELECT COALESCE(MAX(id_adresse), 0) + 1 AS next_id FROM Adresse");
-        $stmt_max->execute();
-        $row = $stmt_max->fetch();
-        $id_adresse = isset($row['next_id']) ? (int)$row['next_id'] : 1;
 
-        // 2. Créer l'adresse
+        // 1. Créer l'adresse de la pharmacie (AUTO_INCREMENT)
         $pdo->prepare("
-            INSERT INTO Adresse(id_adresse, Numero_de_voie, Type_de_voie, Nom_de_la_voie, Ville, Code_postale)
-            VALUES(:id, :nv, :tv, :nlv, :vi, :cp)
+            INSERT INTO Adresse(Numero_de_voie, Type_de_voie, Nom_de_la_voie, Ville, Code_postale)
+            VALUES(:nv, :tv, :nlv, :vi, :cp)
         ")->execute([
-            ':id'  => $id_adresse,
             ':nv'  => trim($b['numero_voie'] ?? '') ?: null,
             ':tv'  => trim($b['type_voie']   ?? '') ?: null,
             ':nlv' => trim($b['nom_voie']    ?? '') ?: null,
             ':vi'  => $ville ?: null,
             ':cp'  => trim($b['code_postal'] ?? '') ?: null,
         ]);
+        $id_adresse_pharmacie = (int)$pdo->lastInsertId();
 
-        // 3. Créer la pharmacie
+        // 2. Créer la pharmacie
         $pdo->prepare("
             INSERT INTO Pharmacie(Nom, Numero_de_telephone, nom_du_proprietaire, id_adresse, active)
             VALUES(:nom, :tel, :prop, :adr, 1)
@@ -88,9 +83,15 @@ if (method() === 'POST') {
             ':nom'  => $nom,
             ':tel'  => trim($b['telephone']   ?? '') ?: null,
             ':prop' => trim($b['proprietaire'] ?? '') ?: null,
-            ':adr'  => $id_adresse,
+            ':adr'  => $id_adresse_pharmacie,
         ]);
         $id_pharmacie = (int)$pdo->lastInsertId();
+
+        // 3. Créer une adresse séparée pour l'Admin (id_adresse est UNIQUE dans Admin)
+        $pdo->prepare("
+            INSERT INTO Adresse(Ville) VALUES(:vi)
+        ")->execute([':vi' => $ville ?: null]);
+        $id_adresse_admin = (int)$pdo->lastInsertId();
 
         // 4. Créer le compte ADMIN
         $hash = password_hash($admin_password, PASSWORD_DEFAULT);
@@ -104,14 +105,14 @@ if (method() === 'POST') {
         ]);
         $id_compte = (int)$pdo->lastInsertId();
 
-        // 5. Créer le profil Admin (réutilise le même id_adresse que la pharmacie)
+        // 5. Créer le profil Admin avec son propre id_adresse
         $pdo->prepare("
             INSERT INTO Admin(id_compte, Id_pharmacie, id_adresse, prenom, nom)
             VALUES(:id_compte, :id_pharmacie, :id_adresse, :prenom, :nom)
         ")->execute([
             ':id_compte'    => $id_compte,
             ':id_pharmacie' => $id_pharmacie,
-            ':id_adresse'   => $id_adresse,
+            ':id_adresse'   => $id_adresse_admin,
             ':prenom'       => $admin_prenom ?: null,
             ':nom'          => $admin_nom_val ?: null,
         ]);
@@ -144,9 +145,11 @@ if (method() === 'DELETE') {
     $pdo->beginTransaction();
     try {
         // ── 1. Récupérer les IDs utiles ──────────────────────────────
-        $adminComptes = $pdo->prepare("SELECT id_compte FROM Admin WHERE Id_pharmacie = ?");
+        $adminComptes = $pdo->prepare("SELECT id_compte, id_adresse FROM Admin WHERE Id_pharmacie = ?");
         $adminComptes->execute([$id]);
-        $adminCompteIds = $adminComptes->fetchAll(PDO::FETCH_COLUMN);
+        $adminRows      = $adminComptes->fetchAll();
+        $adminCompteIds = array_column($adminRows, 'id_compte');
+        $adminAdresseIds = array_column($adminRows, 'id_adresse');
 
         $persoStmt = $pdo->prepare("SELECT id_compte, id_personnel FROM Personnel WHERE Id_pharmacie = ?");
         $persoStmt->execute([$id]);
@@ -162,7 +165,7 @@ if (method() === 'DELETE') {
         if (!empty($commandeIds)) {
             $inCmd = implode(',', array_fill(0, count($commandeIds), '?'));
 
-            // Lignes BL
+            // Lignes BL (ON DELETE CASCADE de Bon_de_livraison, mais on supprime explicitement)
             $blStmt = $pdo->prepare("SELECT id_bl FROM Bon_de_livraison WHERE id_commande IN ($inCmd)");
             $blStmt->execute($commandeIds);
             $blIds = $blStmt->fetchAll(PDO::FETCH_COLUMN);
@@ -172,22 +175,23 @@ if (method() === 'DELETE') {
             }
 
             $pdo->prepare("DELETE FROM Bon_de_livraison WHERE id_commande IN ($inCmd)")->execute($commandeIds);
-            $pdo->prepare("DELETE FROM Ligne_commande   WHERE id_commande IN ($inCmd)")->execute($commandeIds);
+            // Contenir (lignes commande) a ON DELETE CASCADE depuis Commande — suppression auto
             $pdo->prepare("DELETE FROM Commande WHERE Id_pharmacie = ?")->execute([$id]);
         }
 
-        // ── 3. Supprimer ventes du personnel de cette pharmacie ───────
-        if (!empty($persoIds)) {
-            $inPerso = implode(',', array_fill(0, count($persoIds), '?'));
-            $venteStmt = $pdo->prepare("SELECT id_vente FROM Vente WHERE id_personnel IN ($inPerso)");
-            $venteStmt->execute($persoIds);
-            $venteIds = $venteStmt->fetchAll(PDO::FETCH_COLUMN);
-            if (!empty($venteIds)) {
-                $inVente = implode(',', array_fill(0, count($venteIds), '?'));
-                $pdo->prepare("DELETE FROM Concerner_ WHERE id_vente IN ($inVente)")->execute($venteIds);
-                $pdo->prepare("DELETE FROM Vente WHERE id_vente IN ($inVente)")->execute($venteIds);
-            }
+        // ── 3. Supprimer ventes de cette pharmacie via Realiser ───────
+        $venteStmt = $pdo->prepare("SELECT id_vente FROM Realiser WHERE Id_pharmacie = ?");
+        $venteStmt->execute([$id]);
+        $venteIds = $venteStmt->fetchAll(PDO::FETCH_COLUMN);
+        if (!empty($venteIds)) {
+            $inVente = implode(',', array_fill(0, count($venteIds), '?'));
+            $pdo->prepare("DELETE FROM Concerner_ WHERE id_vente IN ($inVente)")->execute($venteIds);
+            $pdo->prepare("DELETE FROM Realiser   WHERE id_vente IN ($inVente)")->execute($venteIds);
+            $pdo->prepare("DELETE FROM Vente      WHERE id_vente IN ($inVente)")->execute($venteIds);
         }
+
+        // ── 3b. Supprimer les produits liés via Proposer ──────────────
+        $pdo->prepare("DELETE FROM Proposer WHERE Id_pharmacie = ?")->execute([$id]);
 
         // ── 4. Supprimer Personnel et Admin ──────────────────────────
         $pdo->prepare("DELETE FROM Personnel WHERE Id_pharmacie = ?")->execute([$id]);
@@ -203,9 +207,13 @@ if (method() === 'DELETE') {
         // ── 6. Supprimer la pharmacie ────────────────────────────────
         $pdo->prepare("DELETE FROM Pharmacie WHERE Id_pharmacie = ?")->execute([$id]);
 
-        // ── 7. Supprimer l'adresse ───────────────────────────────────
-        if ($id_adresse) {
-            $pdo->prepare("DELETE FROM Adresse WHERE id_adresse = ?")->execute([$id_adresse]);
+        // ── 7. Supprimer les adresses (pharmacie + admins) ──────────
+        $adressesToDelete = array_values(array_filter(array_unique(
+            array_merge([$id_adresse], $adminAdresseIds)
+        )));
+        if (!empty($adressesToDelete)) {
+            $inAdr = implode(',', array_fill(0, count($adressesToDelete), '?'));
+            $pdo->prepare("DELETE FROM Adresse WHERE id_adresse IN ($inAdr)")->execute($adressesToDelete);
         }
 
         $pdo->commit();
