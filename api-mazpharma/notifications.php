@@ -47,18 +47,19 @@ if (method() === 'GET') {
 // ----- POST check alertes apres vente -----
 if (method() === 'POST' && q('action') === 'check') {
     $payload      = requireRole(['USER', 'ADMIN', 'SUPERADMIN']);
-    $b            = jsonBody();
+    $raw          = file_get_contents('php://input');
+    $b            = (is_array(json_decode($raw, true))) ? json_decode($raw, true) : [];
     $id_produits  = array_map('intval', $b['id_produits'] ?? []);
     $seuil_global = max(0, (int)($b['seuil_global'] ?? 10));
 
-    if (empty($id_produits)) jsonResponse(['created' => 0]);
+    if (empty($id_produits)) jsonResponse(['created' => 0, '_debug' => ['raw' => $raw, 'b' => $b]]);
 
     $id_pharmacie = getPharmacieId($pdo, $payload['id']);
 
     $in   = implode(',', array_fill(0, count($id_produits), '?'));
     $stmt = $pdo->prepare("
         SELECT id_produit, nom_du_produit, Quantite_disponible,
-               seuil_alerte_manuel, prix_d_achat
+               seuil_alerte_manuel, seuil_min_manuel, prix_d_achat
           FROM Produit
          WHERE id_produit IN ($in)
     ");
@@ -66,14 +67,20 @@ if (method() === 'POST' && q('action') === 'check') {
     $produits = $stmt->fetchAll();
 
     $created = 0;
-    foreach ($produits as $p) {
-        // seuil effectif : valeur manuelle du produit, sinon seuil global
-        $seuil = ($p['seuil_alerte_manuel'] !== null)
-                 ? (int)$p['seuil_alerte_manuel']
-                 : $seuil_global;
+    $alertes = []; // liste des produits qui ont declenche une alerte
 
-        if ($seuil <= 0)                          continue; // pas de seuil defini
-        if ($p['Quantite_disponible'] >= $seuil)  continue; // stock suffisant
+    foreach ($produits as $p) {
+        // priorite : seuil_alerte_manuel > seuil_min_manuel > seuil_global
+        if ($p['seuil_alerte_manuel'] !== null) {
+            $seuil = (int)$p['seuil_alerte_manuel'];
+        } elseif ($p['seuil_min_manuel'] !== null) {
+            $seuil = (int)$p['seuil_min_manuel'];
+        } else {
+            $seuil = $seuil_global;
+        }
+
+        if ($seuil <= 0)                          continue;
+        if ($p['Quantite_disponible'] >= $seuil)  continue;
 
         // eviter doublon : ne pas creer si une notif PENDING existe deja
         $stmtChk = $pdo->prepare("
@@ -82,9 +89,16 @@ if (method() === 'POST' && q('action') === 'check') {
              LIMIT 1
         ");
         $stmtChk->execute([':pid' => $p['id_produit'], ':ph' => $id_pharmacie]);
-        if ($stmtChk->fetchColumn()) continue;
+        if ($stmtChk->fetchColumn()) {
+            // notif deja existante : on l'inclut quand meme dans alertes pour la notif systeme
+            $alertes[] = [
+                'nom'   => $p['nom_du_produit'],
+                'stock' => (int)$p['Quantite_disponible'],
+                'seuil' => $seuil,
+            ];
+            continue;
+        }
 
-        // quantite suggeree = seuil + 50%, arrondi superieur
         $qte_suggere = (int)ceil($seuil * 1.5);
         $titre   = "Alerte stock : " . $p['nom_du_produit'];
         $message = "Stock actuel : {$p['Quantite_disponible']} (seuil : {$seuil}). "
@@ -102,10 +116,16 @@ if (method() === 'POST' && q('action') === 'check') {
             ':s'   => $seuil,
             ':q'   => $qte_suggere,
         ]);
+
+        $alertes[] = [
+            'nom'   => $p['nom_du_produit'],
+            'stock' => (int)$p['Quantite_disponible'],
+            'seuil' => $seuil,
+        ];
         $created++;
     }
 
-    jsonResponse(['created' => $created]);
+    jsonResponse(['created' => $created, 'alertes' => $alertes]);
 }
 
 // ----- PUT actions -----
