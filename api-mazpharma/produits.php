@@ -124,14 +124,27 @@ if (method() === 'POST') {
     }
 }
 
-// ----- PUT seuil global : applique seuil_alerte_manuel a TOUS les produits -----
+// ----- PUT seuil global : applique seuil_min_manuel aux produits de la pharmacie -----
 if (method() === 'PUT' && !$id && q('action') === 'seuil_global') {
-    requireRole(['ADMIN', 'SUPERADMIN']);
+    $payload      = requireRole(['ADMIN', 'SUPERADMIN']);
+    $id_pharmacie = getPharmacieId($pdo, $payload);
     $b     = jsonBody();
     $seuil = (int)($b['seuil'] ?? 0);
     if ($seuil <= 0) jsonResponse(['error' => 'Seuil invalide'], 400);
-    $stmt = $pdo->prepare("UPDATE Produit SET seuil_alerte_manuel = :s WHERE actif = 1");
-    $stmt->execute([':s' => $seuil]);
+
+    if ($id_pharmacie !== null) {
+        // ADMIN : seulement les produits de sa pharmacie
+        $stmt = $pdo->prepare("
+            UPDATE Produit SET seuil_min_manuel = :s
+            WHERE actif = 1
+            AND id_produit IN (SELECT id_produit FROM Proposer WHERE Id_pharmacie = :ph)
+        ");
+        $stmt->execute([':s' => $seuil, ':ph' => $id_pharmacie]);
+    } else {
+        // SUPERADMIN : tous les produits
+        $stmt = $pdo->prepare("UPDATE Produit SET seuil_min_manuel = :s WHERE actif = 1");
+        $stmt->execute([':s' => $seuil]);
+    }
     jsonResponse(['updated' => $stmt->rowCount()]);
 }
 
