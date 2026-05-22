@@ -63,9 +63,9 @@ switch ($action) {
                    COUNT(DISTINCT v.id_vente)                          AS nb_ventes,
                    ROUND(SUM(v.montant_total), 2)                      AS ca_mois
               FROM Vente v
-             WHERE v.date_et_heure_de_la_vente >= NOW() - INTERVAL 12 MONTH
              GROUP BY DATE_FORMAT(v.date_et_heure_de_la_vente, '%Y-%m')
              ORDER BY mois ASC
+             LIMIT 24
         ");
         jsonResponse(['data' => $stmt->fetchAll()]);
 
