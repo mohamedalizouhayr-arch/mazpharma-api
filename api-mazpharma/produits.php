@@ -5,7 +5,7 @@ $id = q('id');
 
 // ----- GET catalogue (tous les produits comme référence) -----
 if (method() === 'GET' && !$id && q('action') === 'catalogue') {
-    requireRole(['ADMIN', 'SUPERADMIN']);
+    requireRole(['ADMIN', 'USER']);
     $search = q('search');
     $sql = "SELECT id_produit, nom_du_produit, dci, forme_pharma, dosage,
                    princeps_generique, code_cip, code_barre,
