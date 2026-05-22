@@ -60,20 +60,14 @@ if (method() === 'POST') {
 
     $pdo->beginTransaction();
     try {
-        // ETAPE 1 : calcul du prochain id_adresse
+        // 1. Calcul du prochain id_adresse (pas d'AUTO_INCREMENT sur cette colonne)
         $ville = trim($b['ville'] ?? '');
         $stmt_max = $pdo->prepare("SELECT COALESCE(MAX(id_adresse), 0) + 1 AS next_id FROM Adresse");
         $stmt_max->execute();
         $row = $stmt_max->fetch();
         $id_adresse = isset($row['next_id']) ? (int)$row['next_id'] : 1;
-        if ($id_adresse <= 0) $id_adresse = 1;
-    } catch (Exception $e) {
-        $pdo->rollBack();
-        jsonResponse(['error' => 'ETAPE1 (calcul id_adresse) : ' . $e->getMessage()], 400);
-    }
 
-    try {
-        // ETAPE 2 : INSERT Adresse
+        // 2. Créer l'adresse
         $pdo->prepare("
             INSERT INTO Adresse(id_adresse, Numero_de_voie, Type_de_voie, Nom_de_la_voie, Ville, Code_postale)
             VALUES(:id, :nv, :tv, :nlv, :vi, :cp)
@@ -85,13 +79,8 @@ if (method() === 'POST') {
             ':vi'  => $ville ?: null,
             ':cp'  => trim($b['code_postal'] ?? '') ?: null,
         ]);
-    } catch (Exception $e) {
-        $pdo->rollBack();
-        jsonResponse(['error' => 'ETAPE2 (INSERT Adresse, id=' . $id_adresse . ') : ' . $e->getMessage()], 400);
-    }
 
-    try {
-        // ETAPE 3 : INSERT Pharmacie
+        // 3. Créer la pharmacie
         $pdo->prepare("
             INSERT INTO Pharmacie(Nom, Numero_de_telephone, nom_du_proprietaire, id_adresse, active)
             VALUES(:nom, :tel, :prop, :adr, 1)
@@ -102,13 +91,8 @@ if (method() === 'POST') {
             ':adr'  => $id_adresse,
         ]);
         $id_pharmacie = (int)$pdo->lastInsertId();
-    } catch (Exception $e) {
-        $pdo->rollBack();
-        jsonResponse(['error' => 'ETAPE3 (INSERT Pharmacie, id_adresse=' . $id_adresse . ') : ' . $e->getMessage()], 400);
-    }
 
-    try {
-        // ETAPE 4 : INSERT Compte ADMIN
+        // 4. Créer le compte ADMIN
         $hash = password_hash($admin_password, PASSWORD_DEFAULT);
         $pdo->prepare("
             INSERT INTO Compte(Nom_d_utilisateur, Mots_de_passe, Role, email, actif)
@@ -119,13 +103,8 @@ if (method() === 'POST') {
             ':email' => $admin_email ?: null,
         ]);
         $id_compte = (int)$pdo->lastInsertId();
-    } catch (Exception $e) {
-        $pdo->rollBack();
-        jsonResponse(['error' => 'ETAPE4 (INSERT Compte) : ' . $e->getMessage()], 400);
-    }
 
-    try {
-        // ETAPE 5 : INSERT Admin (id_adresse réutilise celui de la pharmacie)
+        // 5. Créer le profil Admin (réutilise le même id_adresse que la pharmacie)
         $pdo->prepare("
             INSERT INTO Admin(id_compte, Id_pharmacie, id_adresse, prenom, nom)
             VALUES(:id_compte, :id_pharmacie, :id_adresse, :prenom, :nom)
@@ -145,7 +124,7 @@ if (method() === 'POST') {
         ], 201);
     } catch (Exception $e) {
         $pdo->rollBack();
-        jsonResponse(['error' => 'ETAPE5 (INSERT Admin) : ' . $e->getMessage()], 400);
+        jsonResponse(['error' => $e->getMessage()], 400);
     }
 }
 
