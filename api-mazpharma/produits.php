@@ -5,8 +5,12 @@ $id = q('id');
 
 // ----- GET liste -----
 if (method() === 'GET' && !$id) {
-    $search   = q('search');
-    $alerte   = q('alerte');  // si = 1 : uniquement les produits sous seuil
+    $payload     = requireRole(['ADMIN', 'USER', 'SUPERADMIN']);
+    $id_pharmacie = getPharmacieId($pdo, $payload);
+
+    $search = q('search');
+    $alerte = q('alerte');
+
     $sql = "
        SELECT p.id_produit, p.nom_du_produit, p.dci, p.forme_pharma, p.dosage,
               p.princeps_generique, p.code_cip, p.code_barre,
@@ -20,10 +24,17 @@ if (method() === 'GET' && !$id) {
                 ELSE 'OK'
               END AS statut_stock
          FROM Produit p
-         LEFT JOIN Pharmacie ph ON ph.Id_pharmacie = 1
+         JOIN Proposer pr  ON pr.id_produit   = p.id_produit
+         JOIN Pharmacie ph ON ph.Id_pharmacie = pr.Id_pharmacie
         WHERE 1=1
     ";
     $params = [];
+
+    // Filtre par pharmacie (ADMIN/USER uniquement — SUPERADMIN voit tout)
+    if ($id_pharmacie !== null) {
+        $sql .= " AND pr.Id_pharmacie = :id_ph";
+        $params[':id_ph'] = $id_pharmacie;
+    }
     if ($search) {
         $sql .= " AND (p.nom_du_produit LIKE :s OR p.dci LIKE :s OR p.code_barre = :exact)";
         $params[':s']     = "%{$search}%";
@@ -32,6 +43,8 @@ if (method() === 'GET' && !$id) {
     if ($alerte === '1') {
         $sql .= " AND p.Quantite_disponible < COALESCE(p.seuil_min_manuel, ROUND(p.stock_max * ph.seuil_min_pct_general / 100))";
     }
+    // Assure l'unicité si un produit est proposé par plusieurs pharmacies (ne devrait pas arriver)
+    $sql .= " GROUP BY p.id_produit, ph.Id_pharmacie";
     $sql .= " ORDER BY p.nom_du_produit";
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
@@ -49,25 +62,49 @@ if (method() === 'GET' && $id) {
 
 // ----- POST création produit (ADMIN/SUPERADMIN) -----
 if (method() === 'POST') {
-    requireRole(['ADMIN','SUPERADMIN']);
+    $payload      = requireRole(['ADMIN','SUPERADMIN']);
+    $id_pharmacie = getPharmacieId($pdo, $payload);
     $b = jsonBody();
-    $sql = "INSERT INTO Produit(nom_du_produit, prix_de_vente, prix_d_achat, dci, forme_pharma,
-              dosage, princeps_generique, stock_max, seuil_min_manuel, Quantite_disponible, id_stock)
-            VALUES(:nom, :pv, :pa, :dci, :forme, :dose, :pg, :smax, :smin, :stock, 1)";
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute([
-        ':nom'  => $b['nom_du_produit'] ?? '',
-        ':pv'   => $b['prix_de_vente']  ?? 0,
-        ':pa'   => $b['prix_d_achat']   ?? 0,
-        ':dci'  => $b['dci']            ?? null,
-        ':forme'=> $b['forme_pharma']   ?? null,
-        ':dose' => $b['dosage']         ?? null,
-        ':pg'   => $b['princeps_generique'] ?? null,
-        ':smax' => $b['stock_max']      ?? 100,
-        ':smin' => $b['seuil_min_manuel'] ?? null,
-        ':stock'=> $b['stock_initial']  ?? 0
-    ]);
-    jsonResponse(['id' => $pdo->lastInsertId()], 201);
+
+    // Récupérer un id_stock valide (Stock est partagé, indépendant de la pharmacie)
+    $sRow = $pdo->query("SELECT id_stock FROM Stock LIMIT 1");
+    $sData = $sRow->fetch();
+    $id_stock = $sData ? (int)$sData['id_stock'] : 1;
+
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare("
+            INSERT INTO Produit(nom_du_produit, prix_de_vente, prix_d_achat, dci, forme_pharma,
+                      dosage, princeps_generique, stock_max, seuil_min_manuel, Quantite_disponible, id_stock)
+            VALUES(:nom, :pv, :pa, :dci, :forme, :dose, :pg, :smax, :smin, :stock, :id_stock)
+        ");
+        $stmt->execute([
+            ':nom'      => $b['nom_du_produit'] ?? '',
+            ':pv'       => $b['prix_de_vente']  ?? 0,
+            ':pa'       => $b['prix_d_achat']   ?? 0,
+            ':dci'      => $b['dci']            ?? null,
+            ':forme'    => $b['forme_pharma']   ?? null,
+            ':dose'     => $b['dosage']         ?? null,
+            ':pg'       => $b['princeps_generique'] ?? null,
+            ':smax'     => $b['stock_max']      ?? 100,
+            ':smin'     => $b['seuil_min_manuel'] ?? null,
+            ':stock'    => $b['stock_initial']  ?? 0,
+            ':id_stock' => $id_stock,
+        ]);
+        $id_produit = (int)$pdo->lastInsertId();
+
+        // Lier le produit à la pharmacie via la table Proposer
+        if ($id_pharmacie) {
+            $pdo->prepare("INSERT IGNORE INTO Proposer(Id_pharmacie, id_produit) VALUES(?, ?)")
+                ->execute([$id_pharmacie, $id_produit]);
+        }
+
+        $pdo->commit();
+        jsonResponse(['id' => $id_produit], 201);
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        jsonResponse(['error' => $e->getMessage()], 400);
+    }
 }
 
 // ----- PUT seuil global : applique seuil_alerte_manuel a TOUS les produits -----
