@@ -37,9 +37,15 @@ if (method() === 'GET') {
     ");
     $stmt->execute([':ph' => $id_pharmacie]);
 
+    // nom de la pharmacie
+    $nomStmt = $pdo->prepare("SELECT Nom FROM Pharmacie WHERE Id_pharmacie = :ph LIMIT 1");
+    $nomStmt->execute([':ph' => $id_pharmacie]);
+    $nom_pharmacie = $nomStmt->fetchColumn() ?: '';
+
     jsonResponse([
-        'messages'  => $stmt->fetchAll(),
-        'id_compte' => $payload['id'],   // pour identifier "mes" messages côté app
+        'messages'      => $stmt->fetchAll(),
+        'id_compte'     => $payload['id'],
+        'nom_pharmacie' => $nom_pharmacie,
     ]);
 }
 
