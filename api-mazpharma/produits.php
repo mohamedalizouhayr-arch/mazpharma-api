@@ -43,8 +43,6 @@ if (method() === 'GET' && !$id) {
     if ($alerte === '1') {
         $sql .= " AND p.Quantite_disponible < COALESCE(p.seuil_min_manuel, ROUND(p.stock_max * ph.seuil_min_pct_general / 100))";
     }
-    // Assure l'unicité si un produit est proposé par plusieurs pharmacies (ne devrait pas arriver)
-    $sql .= " GROUP BY p.id_produit, ph.Id_pharmacie";
     $sql .= " ORDER BY p.nom_du_produit";
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
