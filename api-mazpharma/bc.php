@@ -110,8 +110,7 @@ if (method() === 'POST') {
         ]);
         $id_cmd = (int)$pdo->lastInsertId();
 
-        $st    = $pdo->prepare("INSERT INTO Contenir(id_commande, id_produit, Quantite_commandee, prix_unitaire_achat) VALUES(?,?,?,?)");
-        $stPro = $pdo->prepare("INSERT IGNORE INTO Proposer(Id_pharmacie, id_produit) VALUES(?,?)");
+        $st = $pdo->prepare("INSERT INTO Contenir(id_commande, id_produit, Quantite_commandee, prix_unitaire_achat) VALUES(?,?,?,?)");
         foreach ($b['lignes'] as $l) {
             $pa = (float)($l['pa'] ?? 0);
             if ($pa == 0) {
@@ -121,9 +120,9 @@ if (method() === 'POST') {
                 $pa = (float)$sp->fetchColumn();
             }
             $st->execute([$id_cmd, $l['id_produit'], $l['qte'], $pa]);
-            // Si le produit n'est pas encore dans le catalogue de la pharmacie, on l'y ajoute
-            $stPro->execute([$id_pharmacie, $l['id_produit']]);
         }
+        // NOTE : on ne touche pas à Proposer ici.
+        // Le produit sera ajouté au stock de la pharmacie uniquement à la réception du BL (bl.php).
 
         $pdo->commit();
         jsonResponse(['id_commande' => $id_cmd, 'reference_bc' => $ref], 201);
