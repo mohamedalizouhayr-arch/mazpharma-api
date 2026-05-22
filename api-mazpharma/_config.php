@@ -4,10 +4,13 @@
  * Version robuste qui marche quelle que soit la version PHP/Nixpacks.
  */
 
-// --- DEBUG temporaire ---
-ini_set('display_errors', '1');
-ini_set('display_startup_errors', '1');
-error_reporting(E_ALL);
+// Capture tout output PHP (warnings, notices) pour éviter de corrompre le JSON
+ob_start();
+
+// --- DEBUG désactivé pour éviter HTML dans les réponses JSON ---
+ini_set('display_errors', '0');
+ini_set('display_startup_errors', '0');
+error_reporting(0);
 
 // --- Headers JSON + CORS ---
 header('Content-Type: application/json; charset=utf-8');
@@ -103,6 +106,7 @@ try {
 // =====================================================================
 
 function jsonResponse($data, int $code = 200): void {
+    ob_clean(); // Vide tout output parasite (warnings PHP, etc.)
     http_response_code($code);
     echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
@@ -137,6 +141,26 @@ function makeToken(array $compte): string {
         'role' => $compte['Role'],
         'iat'  => time()
     ]));
+}
+
+/**
+ * Retourne l'Id_pharmacie de l'utilisateur connecté (ADMIN → Admin, USER → Personnel).
+ * Retourne null pour SUPERADMIN (pas de filtre, il voit tout).
+ */
+function getPharmacieId(PDO $pdo, array $payload): ?int {
+    if ($payload['role'] === 'ADMIN') {
+        $s = $pdo->prepare("SELECT Id_pharmacie FROM Admin WHERE id_compte = ? LIMIT 1");
+        $s->execute([$payload['id']]);
+        $r = $s->fetch();
+        return $r ? (int)$r['Id_pharmacie'] : null;
+    }
+    if ($payload['role'] === 'USER') {
+        $s = $pdo->prepare("SELECT Id_pharmacie FROM Personnel WHERE id_compte = ? LIMIT 1");
+        $s->execute([$payload['id']]);
+        $r = $s->fetch();
+        return $r ? (int)$r['Id_pharmacie'] : null;
+    }
+    return null; // SUPERADMIN : pas de filtre
 }
 
 function newBcRef(PDO $pdo): string {
