@@ -127,13 +127,19 @@ if (method() === 'PUT' && q('id')) {
         if ($notif['statut'] !== 'PENDING') jsonResponse(['error' => 'Notification deja traitee'], 400);
 
         $id_pharmacie = (int)$notif['Id_pharmacie'];
+        $b = jsonBody();
 
-        // chercher fournisseur lie a la pharmacie
-        $stmtF = $pdo->prepare("SELECT id_fournisseur FROM Commander WHERE Id_pharmacie = :ph LIMIT 1");
-        $stmtF->execute([':ph' => $id_pharmacie]);
-        $id_fournisseur = $stmtF->fetchColumn();
+        // Fournisseur choisi par l'utilisateur, sinon fallback auto
+        $id_fournisseur = isset($b['id_fournisseur']) && (int)$b['id_fournisseur'] > 0
+            ? (int)$b['id_fournisseur']
+            : null;
 
-        // fallback : premier fournisseur disponible
+        if (!$id_fournisseur) {
+            // fallback : fournisseur lié à la pharmacie
+            $stmtF = $pdo->prepare("SELECT id_fournisseur FROM Commander WHERE Id_pharmacie = :ph LIMIT 1");
+            $stmtF->execute([':ph' => $id_pharmacie]);
+            $id_fournisseur = $stmtF->fetchColumn();
+        }
         if (!$id_fournisseur) {
             $id_fournisseur = $pdo->query("SELECT id_fournisseur FROM Fournisseur LIMIT 1")->fetchColumn();
         }
