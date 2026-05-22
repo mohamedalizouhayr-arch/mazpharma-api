@@ -47,12 +47,11 @@ if (method() === 'GET') {
 // ----- POST check alertes apres vente -----
 if (method() === 'POST' && q('action') === 'check') {
     $payload      = requireRole(['USER', 'ADMIN', 'SUPERADMIN']);
-    $raw          = file_get_contents('php://input');
-    $b            = (is_array(json_decode($raw, true))) ? json_decode($raw, true) : [];
+    $b            = jsonBody();
     $id_produits  = array_map('intval', $b['id_produits'] ?? []);
     $seuil_global = max(0, (int)($b['seuil_global'] ?? 10));
 
-    if (empty($id_produits)) jsonResponse(['created' => 0, '_debug' => ['raw' => $raw, 'b' => $b]]);
+    if (empty($id_produits)) jsonResponse(['created' => 0]);
 
     $id_pharmacie = getPharmacieId($pdo, $payload['id']);
 
