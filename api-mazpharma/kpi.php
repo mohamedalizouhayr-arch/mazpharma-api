@@ -55,8 +55,11 @@ switch ($action) {
             SELECT COUNT(*) FROM Commande c WHERE c.statut = 'PROPOSEE' $whereCom
         ")->fetchColumn();
 
+        // NOTE : statut 'PROPOSEE' en BDD = label "Passée" dans l'app (commande.jsx CONFIG_STATUT)
+        // TODO: statut 'PROPOSEE' = BC passées en attente de traitement.
+        // Changer pour IN ('VALIDEE','ENVOYEE') si on veut les BC en cours côté fournisseur.
         $data['bc_en_cours'] = (int)$pdo->query("
-            SELECT COUNT(*) FROM Commande c WHERE c.statut IN ('VALIDEE','ENVOYEE') $whereCom
+            SELECT COUNT(*) FROM Commande c WHERE c.statut = 'PROPOSEE' $whereCom
         ")->fetchColumn();
 
         jsonResponse($data);
@@ -79,7 +82,8 @@ switch ($action) {
            SELECT f.id_fournisseur, f.Nom AS fournisseur,
                   COUNT(c.id_commande) AS nb_bc,
                   SUM(c.Montant_total_commande) AS montant_total,
-                  SUM(CASE WHEN c.statut IN ('LIVREE','LIVREE_PARTIEL') THEN 1 ELSE 0 END) AS nb_livrees,
+                  SUM(CASE WHEN c.statut = 'LIVREE'         THEN 1 ELSE 0 END) AS nb_livrees,
+                  SUM(CASE WHEN c.statut = 'LIVREE_PARTIEL' THEN 1 ELSE 0 END) AS nb_livrees_partiel,
                   AVG(DATEDIFF(IFNULL(c.date_envoi_fournisseur, NOW()), c.date_validation)) AS delai_envoi_moyen
              FROM Fournisseur f
              LEFT JOIN Commande c ON c.id_fournisseur = f.id_fournisseur
