@@ -26,13 +26,38 @@ if (method() === 'POST' && $action === 'login') {
     $pdo->prepare("UPDATE Compte SET derniere_connexion = NOW() WHERE id_compte = ?")
         ->execute([$compte['id_compte']]);
 
+    // Récupérer prénom et nom selon le rôle
+    $prenom = '';
+    $nom    = '';
+    $role   = $compte['Role'];
+    $cid    = (int)$compte['id_compte'];
+
+    if ($role === 'ADMIN') {
+        $s = $pdo->prepare("SELECT prenom, nom FROM Admin WHERE id_compte = ? LIMIT 1");
+        $s->execute([$cid]);
+        $r = $s->fetch();
+        if ($r) { $prenom = $r['prenom']; $nom = $r['nom']; }
+    } elseif ($role === 'USER') {
+        $s = $pdo->prepare("SELECT Prenom, Nom FROM Personnel WHERE id_compte = ? LIMIT 1");
+        $s->execute([$cid]);
+        $r = $s->fetch();
+        if ($r) { $prenom = $r['Prenom']; $nom = $r['Nom']; }
+    } elseif ($role === 'SUPERADMIN') {
+        $s = $pdo->prepare("SELECT prenom, nom FROM SuperAdmin WHERE id_compte = ? LIMIT 1");
+        $s->execute([$cid]);
+        $r = $s->fetch();
+        if ($r) { $prenom = $r['prenom']; $nom = $r['nom']; }
+    }
+
     jsonResponse([
         'token' => makeToken($compte),
         'user'  => [
-            'id'    => (int)$compte['id_compte'],
-            'login' => $compte['Nom_d_utilisateur'],
-            'role'  => $compte['Role'],
-            'email' => $compte['email']
+            'id'     => $cid,
+            'login'  => $compte['Nom_d_utilisateur'],
+            'role'   => $role,
+            'email'  => $compte['email'],
+            'prenom' => $prenom,
+            'nom'    => $nom,
         ]
     ]);
 }
