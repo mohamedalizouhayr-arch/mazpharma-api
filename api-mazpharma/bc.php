@@ -51,10 +51,22 @@ if (method() === 'GET' && $id && !$action) {
     $stmt->execute([':id' => $id]);
     $bc['lignes'] = $stmt->fetchAll();
 
-    // BL associé (s'il existe)
-    $stmt = $pdo->prepare("SELECT * FROM Bon_de_livraison WHERE id_commande = :id");
+    // BL associé (s'il existe) + ses lignes
+    $stmt = $pdo->prepare("SELECT * FROM Bon_de_livraison WHERE id_commande = :id LIMIT 1");
     $stmt->execute([':id' => $id]);
-    $bc['bl'] = $stmt->fetch() ?: null;
+    $bl = $stmt->fetch() ?: null;
+    if ($bl) {
+        $stmtLignes = $pdo->prepare("
+            SELECT lbl.id_produit, p.nom_du_produit, p.dci,
+                   lbl.qte_commandee, lbl.qte_recue,
+                   (lbl.qte_commandee - lbl.qte_recue) AS manquant
+              FROM Ligne_BL lbl JOIN Produit p ON p.id_produit = lbl.id_produit
+             WHERE lbl.id_bl = :id_bl
+        ");
+        $stmtLignes->execute([':id_bl' => $bl['id_bl']]);
+        $bl['lignes'] = $stmtLignes->fetchAll();
+    }
+    $bc['bl'] = $bl;
 
     jsonResponse(['commande' => $bc]);
 }
