@@ -54,12 +54,12 @@ if (method() === 'POST') {
 
     $pdo->beginTransaction();
     try {
-        // Vérifier que la BC est bien en ENVOYEE
+        // Vérifier que la BC n'est pas déjà livrée ou annulée
         $stmt = $pdo->prepare("SELECT statut FROM Commande WHERE id_commande = ?");
         $stmt->execute([$b['id_commande']]);
         $st = $stmt->fetchColumn();
-        if ($st !== 'ENVOYEE') {
-            throw new Exception("La commande doit être en statut ENVOYEE pour créer un BL (statut actuel : $st)");
+        if (in_array($st, ['LIVREE', 'LIVREE_PARTIEL', 'ANNULEE'], true)) {
+            throw new Exception("Impossible de créer un BL pour une commande en statut $st");
         }
 
         // Vérifier qu'aucun BL n'existe déjà pour cette commande
