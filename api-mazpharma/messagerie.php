@@ -1,26 +1,11 @@
 <?php
 require_once __DIR__ . '/_config.php';
 
-// Helper : retrouver la pharmacie du compte connecté
-function getPharmacieId(PDO $pdo, array $payload): int {
-    $id = $payload['id'];
-    if ($payload['role'] === 'ADMIN') {
-        $s = $pdo->prepare("SELECT Id_pharmacie FROM Admin WHERE id_compte = :id LIMIT 1");
-    } elseif ($payload['role'] === 'USER') {
-        $s = $pdo->prepare("SELECT Id_pharmacie FROM Personnel WHERE id_compte = :id LIMIT 1");
-    } else {
-        jsonResponse(['error' => 'Messagerie non disponible pour ce rôle'], 403);
-    }
-    $s->execute([':id' => $id]);
-    $ph = (int)$s->fetchColumn();
-    if (!$ph) jsonResponse(['error' => 'Pharmacie introuvable'], 400);
-    return $ph;
-}
-
 // ----- GET : liste des messages -----
 if (method() === 'GET') {
     $payload      = requireRole(['ADMIN', 'USER']);
     $id_pharmacie = getPharmacieId($pdo, $payload);
+    if (!$id_pharmacie) jsonResponse(['error' => 'Pharmacie introuvable'], 400);
 
     $stmt = $pdo->prepare("
         SELECT m.id_message, m.contenu, m.date_envoi, m.id_compte,
@@ -53,6 +38,7 @@ if (method() === 'GET') {
 if (method() === 'POST') {
     $payload      = requireRole(['ADMIN', 'USER']);
     $id_pharmacie = getPharmacieId($pdo, $payload);
+    if (!$id_pharmacie) jsonResponse(['error' => 'Pharmacie introuvable'], 400);
 
     $raw     = file_get_contents('php://input');
     $b       = (is_array(json_decode($raw, true))) ? json_decode($raw, true) : [];
