@@ -60,20 +60,23 @@ if (method() === 'POST') {
 
     $pdo->beginTransaction();
     try {
-        // 1. Créer l'adresse (toujours, même si les champs sont vides)
-        // car id_adresse est NOT NULL dans la table Pharmacie
+        // 1. Créer l'adresse
+        // id_adresse n'a pas d'AUTO_INCREMENT : on calcule le prochain ID manuellement
         $ville = trim($b['ville'] ?? '');
+        $row = $pdo->query("SELECT COALESCE(MAX(id_adresse), 0) + 1 AS next_id FROM Adresse")->fetch();
+        $id_adresse = (int)$row['next_id'];
+
         $pdo->prepare("
-            INSERT INTO Adresse(Numero_de_voie, Type_de_voie, Nom_de_la_voie, Ville, Code_postale)
-            VALUES(:nv, :tv, :nlv, :vi, :cp)
+            INSERT INTO Adresse(id_adresse, Numero_de_voie, Type_de_voie, Nom_de_la_voie, Ville, Code_postale)
+            VALUES(:id, :nv, :tv, :nlv, :vi, :cp)
         ")->execute([
+            ':id'  => $id_adresse,
             ':nv'  => trim($b['numero_voie'] ?? '') ?: null,
             ':tv'  => trim($b['type_voie']   ?? '') ?: null,
             ':nlv' => trim($b['nom_voie']    ?? '') ?: null,
             ':vi'  => $ville ?: null,
             ':cp'  => trim($b['code_postal'] ?? '') ?: null,
         ]);
-        $id_adresse = (int)$pdo->lastInsertId();
 
         // 2. Créer la pharmacie
         $pdo->prepare("
