@@ -60,22 +60,20 @@ if (method() === 'POST') {
 
     $pdo->beginTransaction();
     try {
-        // 1. Créer l'adresse si une ville est fournie
-        $id_adresse = null;
-        $ville      = trim($b['ville'] ?? '');
-        if ($ville) {
-            $pdo->prepare("
-                INSERT INTO Adresse(Numero_de_voie, Type_de_voie, Nom_de_la_voie, Ville, Code_postale)
-                VALUES(:nv, :tv, :nlv, :vi, :cp)
-            ")->execute([
-                ':nv'  => $b['numero_voie']  ?? null,
-                ':tv'  => $b['type_voie']    ?? null,
-                ':nlv' => $b['nom_voie']     ?? null,
-                ':vi'  => $ville,
-                ':cp'  => $b['code_postal']  ?? null,
-            ]);
-            $id_adresse = (int)$pdo->lastInsertId();
-        }
+        // 1. Créer l'adresse (toujours, même si les champs sont vides)
+        // car id_adresse est NOT NULL dans la table Pharmacie
+        $ville = trim($b['ville'] ?? '');
+        $pdo->prepare("
+            INSERT INTO Adresse(Numero_de_voie, Type_de_voie, Nom_de_la_voie, Ville, Code_postale)
+            VALUES(:nv, :tv, :nlv, :vi, :cp)
+        ")->execute([
+            ':nv'  => trim($b['numero_voie'] ?? '') ?: null,
+            ':tv'  => trim($b['type_voie']   ?? '') ?: null,
+            ':nlv' => trim($b['nom_voie']    ?? '') ?: null,
+            ':vi'  => $ville ?: null,
+            ':cp'  => trim($b['code_postal'] ?? '') ?: null,
+        ]);
+        $id_adresse = (int)$pdo->lastInsertId();
 
         // 2. Créer la pharmacie
         $pdo->prepare("
