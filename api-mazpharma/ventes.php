@@ -132,19 +132,20 @@ if (method() === 'POST') {
         jsonResponse(['error' => 'Impossible de determiner le personnel pour ce compte (id_compte: ' . $payload['id'] . ')'], 403);
     }
 
-    // client par nom/prenom — null si champ vide
-    $id_client = null;
+    // client par nom/prenom — Anonyme si champ vide (id_client NOT NULL)
     $nomCli    = trim($b['client_nom']    ?? '');
     $prenomCli = trim($b['client_prenom'] ?? '');
-    if ($nomCli !== '' || $prenomCli !== '') {
-        $stmt = $pdo->prepare("SELECT id_client FROM Client WHERE Nom = :n AND Prenom = :p LIMIT 1");
+    if ($nomCli === '' && $prenomCli === '') {
+        $nomCli    = 'Anonyme';
+        $prenomCli = '';
+    }
+    $stmt = $pdo->prepare("SELECT id_client FROM Client WHERE Nom = :n AND Prenom = :p LIMIT 1");
+    $stmt->execute([':n' => $nomCli, ':p' => $prenomCli]);
+    $id_client = $stmt->fetchColumn();
+    if (!$id_client) {
+        $stmt = $pdo->prepare("INSERT INTO Client(Nom, Prenom) VALUES(:n, :p)");
         $stmt->execute([':n' => $nomCli, ':p' => $prenomCli]);
-        $id_client = $stmt->fetchColumn();
-        if (!$id_client) {
-            $stmt = $pdo->prepare("INSERT INTO Client(Nom, Prenom) VALUES(:n, :p)");
-            $stmt->execute([':n' => $nomCli, ':p' => $prenomCli]);
-            $id_client = (int)$pdo->lastInsertId();
-        }
+        $id_client = (int)$pdo->lastInsertId();
     }
 
     $pdo->beginTransaction();
