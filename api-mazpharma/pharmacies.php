@@ -125,13 +125,14 @@ if (method() === 'POST') {
     }
 
     try {
-        // ETAPE 5 : INSERT Admin
+        // ETAPE 5 : INSERT Admin (id_adresse réutilise celui de la pharmacie)
         $pdo->prepare("
-            INSERT INTO Admin(id_compte, Id_pharmacie, prenom, nom)
-            VALUES(:id_compte, :id_pharmacie, :prenom, :nom)
+            INSERT INTO Admin(id_compte, Id_pharmacie, id_adresse, prenom, nom)
+            VALUES(:id_compte, :id_pharmacie, :id_adresse, :prenom, :nom)
         ")->execute([
             ':id_compte'    => $id_compte,
             ':id_pharmacie' => $id_pharmacie,
+            ':id_adresse'   => $id_adresse,
             ':prenom'       => $admin_prenom ?: null,
             ':nom'          => $admin_nom_val ?: null,
         ]);
