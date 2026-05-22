@@ -73,8 +73,8 @@ switch ($action) {
         jsonResponse(['data' => $stmt->fetchAll()]);
 
     case 'by_day':
-        // Vue globale — on filtre si possible
-        $stmt = $pdo->query("SELECT * FROM v_kpi_pharmacie ORDER BY jour DESC LIMIT 30");
+        $whereDay = $id_pharmacie !== null ? "WHERE Id_pharmacie = $id_pharmacie" : "";
+        $stmt = $pdo->query("SELECT * FROM v_kpi_pharmacie $whereDay ORDER BY jour DESC LIMIT 30");
         jsonResponse(['data' => $stmt->fetchAll()]);
 
     case 'by_fournisseur':
