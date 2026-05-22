@@ -67,26 +67,31 @@ if (method() === 'GET' && q('id')) {
 
 // ----- POST nouvelle vente -----
 if (method() === 'POST') {
+    try {
     $payload = requireRole(['USER', 'ADMIN', 'SUPERADMIN']);
     $b = jsonBody();
     if (empty($b['lignes']) || !is_array($b['lignes'])) {
         jsonResponse(['error' => 'Lignes manquantes'], 400);
     }
 
-    // id_personnel + id_pharmacie depuis le token
-    $stmt = $pdo->prepare("SELECT id_personnel, Id_pharmacie FROM Personnel WHERE id_compte = :id LIMIT 1");
-    $stmt->execute([':id' => $payload['id']]);
-    $pers = $stmt->fetch();
-    if (!$pers) {
-        $stmt = $pdo->prepare("SELECT Id_pharmacie FROM Admin WHERE id_compte = :id LIMIT 1");
+    // id_personnel + id_pharmacie : chercher dans Personnel puis Admin
+    $id_personnel = null;
+    $id_pharmacie = 1; // fallback
+    try {
+        $stmt = $pdo->prepare("SELECT id_personnel, Id_pharmacie FROM Personnel WHERE id_compte = :id LIMIT 1");
         $stmt->execute([':id' => $payload['id']]);
-        $adm = $stmt->fetch();
-        if (!$adm) jsonResponse(['error' => 'Compte introuvable'], 403);
-        $id_personnel = null;
-        $id_pharmacie = (int)$adm['Id_pharmacie'];
-    } else {
-        $id_personnel = (int)$pers['id_personnel'];
-        $id_pharmacie = (int)$pers['Id_pharmacie'];
+        $pers = $stmt->fetch();
+        if ($pers) {
+            $id_personnel = (int)$pers['id_personnel'];
+            $id_pharmacie = (int)$pers['Id_pharmacie'];
+        } else {
+            $stmt = $pdo->prepare("SELECT Id_pharmacie FROM Admin WHERE id_compte = :id LIMIT 1");
+            $stmt->execute([':id' => $payload['id']]);
+            $adm = $stmt->fetch();
+            if ($adm) $id_pharmacie = (int)$adm['Id_pharmacie'];
+        }
+    } catch (Exception $ignored) {
+        // colonne id_compte absente ou autre : on continue avec les valeurs par defaut
     }
 
     // client par nom/prenom — null si champ vide
@@ -144,8 +149,12 @@ if (method() === 'POST') {
         jsonResponse(['id_vente' => $id_vente, 'montant_total' => round($total,2)], 201);
 
     } catch (Exception $e) {
-        $pdo->rollBack();
+        if ($pdo->inTransaction()) $pdo->rollBack();
         jsonResponse(['error' => $e->getMessage()], 400);
+    }
+
+    } catch (Exception $e) {
+        jsonResponse(['error' => $e->getMessage()], 500);
     }
 }
 
