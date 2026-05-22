@@ -80,7 +80,7 @@ if (method() === 'POST') {
         ");
         $stmt->execute([
             ':per' => $b['id_personnel'] ?? 1,
-            ':cli' => $b['id_client']    ?? 1,
+            ':cli' => $b['id_client']    ?? null,
             ':med' => $b['id_medecin']   ?? null,
             ':mt'  => round($total, 2),
             ':mp'  => $b['mode_paiement'] ?? 'Especes',
