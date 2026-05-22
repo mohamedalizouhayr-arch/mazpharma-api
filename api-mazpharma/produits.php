@@ -3,6 +3,25 @@ require_once __DIR__ . '/_config.php';
 
 $id = q('id');
 
+// ----- GET catalogue (tous les produits comme référence) -----
+if (method() === 'GET' && !$id && q('action') === 'catalogue') {
+    requireRole(['ADMIN', 'SUPERADMIN']);
+    $search = q('search');
+    $sql = "SELECT id_produit, nom_du_produit, dci, forme_pharma, dosage,
+                   princeps_generique, code_cip, code_barre,
+                   prix_de_vente, prix_d_achat
+            FROM Produit WHERE actif = 1";
+    $params = [];
+    if ($search) {
+        $sql .= " AND (nom_du_produit LIKE :s OR dci LIKE :s)";
+        $params[':s'] = "%{$search}%";
+    }
+    $sql .= " ORDER BY nom_du_produit LIMIT 300";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    jsonResponse(['catalogue' => $stmt->fetchAll()]);
+}
+
 // ----- GET liste -----
 if (method() === 'GET' && !$id) {
     $payload     = requireRole(['ADMIN', 'USER', 'SUPERADMIN']);
