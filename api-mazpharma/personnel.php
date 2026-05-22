@@ -45,8 +45,11 @@ if (method() === 'POST') {
     $username = trim($b['username'] ?? '');
     $password = trim($b['password'] ?? '');
 
+    $ville = trim($b['ville'] ?? '');
+
     if (!$nom || !$prenom)         jsonResponse(['error' => 'Nom et prénom requis'], 400);
     if (!$username || !$password)  jsonResponse(['error' => 'Identifiants de connexion requis'], 400);
+    if (!$ville)                   jsonResponse(['error' => 'Ville obligatoire'], 400);
 
     // pharmacie de l'admin
     $s = $pdo->prepare("SELECT Id_pharmacie FROM Admin WHERE id_compte = :id LIMIT 1");
@@ -71,11 +74,24 @@ if (method() === 'POST') {
         ]);
         $id_compte = (int)$pdo->lastInsertId();
 
+        // créer l'adresse du personnel
+        $pdo->prepare("
+            INSERT INTO Adresse(Numero_de_voie, Type_de_voie, Nom_de_la_voie, Ville, Code_postale)
+            VALUES(:num, :type, :nom_voie, :ville, :cp)
+        ")->execute([
+            ':num'      => $b['numero_voie'] ? (int)$b['numero_voie'] : null,
+            ':type'     => $b['type_voie']   ?? null,
+            ':nom_voie' => $b['nom_voie']    ?? null,
+            ':ville'    => $b['ville']       ?? null,
+            ':cp'       => $b['code_postal'] ? (int)$b['code_postal'] : null,
+        ]);
+        $id_adresse = (int)$pdo->lastInsertId();
+
         // créer le personnel
         $pdo->prepare("
             INSERT INTO Personnel(Nom, Prenom, Numero_de_telephone, Fonction,
-                                  Date_de_prise_du_poste, Sexe, Id_pharmacie, id_compte)
-            VALUES(:nom, :prenom, :tel, :fonction, :date, :sexe, :ph, :ic)
+                                  Date_de_prise_du_poste, Sexe, Id_pharmacie, id_compte, id_adresse)
+            VALUES(:nom, :prenom, :tel, :fonction, :date, :sexe, :ph, :ic, :adr)
         ")->execute([
             ':nom'     => $nom,
             ':prenom'  => $prenom,
@@ -85,6 +101,7 @@ if (method() === 'POST') {
             ':sexe'    => $b['sexe']       ?? null,
             ':ph'      => $id_pharmacie,
             ':ic'      => $id_compte,
+            ':adr'     => $id_adresse,
         ]);
         $id_personnel = (int)$pdo->lastInsertId();
 
