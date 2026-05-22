@@ -32,8 +32,8 @@ if (method() === 'GET' && $id) {
     if (!$bl) jsonResponse(['error' => 'BL introuvable'], 404);
 
     $stmt = $pdo->prepare("
-       SELECT lbl.id_produit, p.nom_du_produit, lbl.qte_commandee, lbl.qte_recue,
-              lbl.numero_lot, lbl.date_peremption,
+       SELECT lbl.id_produit, p.nom_du_produit, p.dci,
+              lbl.qte_commandee, lbl.qte_recue,
               (lbl.qte_commandee - COALESCE(lbl.qte_recue,0)) AS manquant
          FROM Ligne_BL lbl JOIN Produit p ON p.id_produit = lbl.id_produit
         WHERE lbl.id_bl = :id
@@ -44,25 +44,75 @@ if (method() === 'GET' && $id) {
 }
 
 // ----- POST création BL à partir d'une BC -----
-// Body: { id_commande, lignes:[{id_produit, qte_recue, numero_lot, date_peremption}] }
+// Body: { id_commande, lignes:[{id_produit, qte_recue}], commentaire? }
 if (method() === 'POST') {
     requireRole(['USER','ADMIN','SUPERADMIN']);
     $b = jsonBody();
-    if (empty($b['id_commande']) || empty($b['lignes'])) jsonResponse(['error' => 'id_commande et lignes requis'], 400);
+    if (empty($b['id_commande']) || empty($b['lignes'])) {
+        jsonResponse(['error' => 'id_commande et lignes requis'], 400);
+    }
 
     $pdo->beginTransaction();
     try {
-        // Vérifier que la BC est bien en ENVOYEE ou LIVRAISON
+        // Vérifier que la BC est bien en ENVOYEE
         $stmt = $pdo->prepare("SELECT statut FROM Commande WHERE id_commande = ?");
         $stmt->execute([$b['id_commande']]);
         $st = $stmt->fetchColumn();
-        if (!in_array($st, ['ENVOYEE','LIVRAISON'], true)) {
-            throw new Exception("Statut BC '$st' invalide pour création BL");
+        if ($st !== 'ENVOYEE') {
+            throw new Exception("La commande doit être en statut ENVOYEE pour créer un BL (statut actuel : $st)");
         }
 
-        $ref = newBlRef($pdo);
+        // Vérifier qu'aucun BL n'existe déjà pour cette commande
+        $stmtEx = $pdo->prepare("SELECT COUNT(*) FROM Bon_de_livraison WHERE id_commande = ?");
+        $stmtEx->execute([$b['id_commande']]);
+        if ((int)$stmtEx->fetchColumn() > 0) {
+            throw new Exception("Un bon de livraison existe déjà pour cette commande");
+        }
+
+        $ref      = newBlRef($pdo);
         $hasEcart = false;
 
+        // Récupérer les quantités commandées
+        $stmt = $pdo->prepare("
+            SELECT ct.id_produit, ct.Quantite_commandee, p.nom_du_produit
+              FROM Contenir ct JOIN Produit p ON p.id_produit = ct.id_produit
+             WHERE ct.id_commande = ?
+        ");
+        $stmt->execute([$b['id_commande']]);
+        $produitsCmd = [];
+        foreach ($stmt->fetchAll() as $r) {
+            $produitsCmd[$r['id_produit']] = [
+                'qte'  => $r['Quantite_commandee'],
+                'nom'  => $r['nom_du_produit'],
+            ];
+        }
+
+        // Calculer les écarts
+        $ecartDetails = [];
+        $lignesFinales = [];
+        foreach ($b['lignes'] as $l) {
+            $pid = (int)$l['id_produit'];
+            $cmd = $produitsCmd[$pid]['qte'] ?? 0;
+            $rec = max(0, (int)($l['qte_recue'] ?? $cmd));
+            if ($rec < $cmd) {
+                $hasEcart      = true;
+                $nom           = $produitsCmd[$pid]['nom'] ?? "Produit #$pid";
+                $ecartDetails[] = "$nom : commandé $cmd, reçu $rec";
+            }
+            $lignesFinales[] = ['id_produit' => $pid, 'cmd' => $cmd, 'rec' => $rec];
+        }
+
+        // Construire le texte ecart_constate
+        $ecartTexte = '';
+        if ($hasEcart) {
+            $ecartTexte = implode(' | ', $ecartDetails);
+        }
+        $commentaire = trim($b['commentaire'] ?? '');
+        if ($commentaire) {
+            $ecartTexte = $ecartTexte ? "$ecartTexte. $commentaire" : $commentaire;
+        }
+
+        // Créer le BL (statut EN_ATTENTE)
         $stmt = $pdo->prepare("
            INSERT INTO Bon_de_livraison(reference_bl, id_commande, id_user_reception, statut)
            VALUES(:r, :c, 1, 'EN_ATTENTE')
@@ -70,32 +120,31 @@ if (method() === 'POST') {
         $stmt->execute([':r' => $ref, ':c' => $b['id_commande']]);
         $id_bl = (int)$pdo->lastInsertId();
 
-        // Récupérer les quantités commandées
-        $stmt = $pdo->prepare("SELECT id_produit, Quantite_commandee FROM Contenir WHERE id_commande = ?");
-        $stmt->execute([$b['id_commande']]);
-        $qteCmd = [];
-        foreach ($stmt->fetchAll() as $r) $qteCmd[$r['id_produit']] = $r['Quantite_commandee'];
-
-        $stmtLigne = $pdo->prepare("INSERT INTO Ligne_BL(id_bl, id_produit, qte_commandee, qte_recue, numero_lot, date_peremption) VALUES(?,?,?,?,?,?)");
-        foreach ($b['lignes'] as $l) {
-            $pid = $l['id_produit'];
-            $cmd = $qteCmd[$pid] ?? 0;
-            $rec = (int)($l['qte_recue'] ?? 0);
-            if ($rec < $cmd) $hasEcart = true;
-            $stmtLigne->execute([$id_bl, $pid, $cmd, $rec, $l['numero_lot'] ?? null, $l['date_peremption'] ?? null]);
+        // Insérer les lignes
+        $stmtLigne = $pdo->prepare("
+            INSERT INTO Ligne_BL(id_bl, id_produit, qte_commandee, qte_recue)
+            VALUES(?, ?, ?, ?)
+        ");
+        foreach ($lignesFinales as $l) {
+            $stmtLigne->execute([$id_bl, $l['id_produit'], $l['cmd'], $l['rec']]);
         }
 
-        // Passage à CONFORME ou ECART -> déclenche le trigger tg_maj_stock_bl
+        // Passer CONFORME ou ECART (déclenche tg_maj_stock_bl → stock + statut BC)
         $newStatut = $hasEcart ? 'ECART' : 'CONFORME';
-        $pdo->prepare("UPDATE Bon_de_livraison SET statut = ? WHERE id_bl = ?")->execute([$newStatut, $id_bl]);
+        $pdo->prepare("
+            UPDATE Bon_de_livraison
+               SET statut = ?, ecart_constate = ?
+             WHERE id_bl = ?
+        ")->execute([$newStatut, $ecartTexte ?: null, $id_bl]);
 
         $pdo->commit();
         jsonResponse([
-            'id_bl' => $id_bl,
+            'id_bl'        => $id_bl,
             'reference_bl' => $ref,
-            'statut' => $newStatut,
-            'ecart' => $hasEcart
+            'statut'       => $newStatut,
+            'ecart'        => $hasEcart,
         ], 201);
+
     } catch (Exception $e) {
         $pdo->rollBack();
         jsonResponse(['error' => $e->getMessage()], 400);
