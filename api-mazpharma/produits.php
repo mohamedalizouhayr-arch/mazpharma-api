@@ -34,12 +34,12 @@ if (method() === 'GET' && !$id) {
        SELECT p.id_produit, p.nom_du_produit, p.dci, p.forme_pharma, p.dosage,
               p.princeps_generique, p.code_cip, p.code_barre,
               p.Quantite_disponible AS stock, p.stock_max,
-              COALESCE(p.seuil_min_manuel, ROUND(p.stock_max * ph.seuil_min_pct_general / 100)) AS seuil_min,
+              COALESCE(p.seuil_alerte_manuel, p.seuil_min_manuel, ROUND(p.stock_max * ph.seuil_min_pct_general / 100)) AS seuil_min,
               p.prix_de_vente AS ppv, p.prix_d_achat AS pa,
               p.vente_moyenne_jour, p.actif,
               CASE
                 WHEN p.Quantite_disponible = 0 THEN 'RUPTURE'
-                WHEN p.Quantite_disponible < COALESCE(p.seuil_min_manuel, ROUND(p.stock_max * ph.seuil_min_pct_general / 100)) THEN 'SOUS_SEUIL'
+                WHEN p.Quantite_disponible < COALESCE(p.seuil_alerte_manuel, p.seuil_min_manuel, ROUND(p.stock_max * ph.seuil_min_pct_general / 100)) THEN 'SOUS_SEUIL'
                 ELSE 'OK'
               END AS statut_stock
          FROM Produit p
@@ -60,7 +60,7 @@ if (method() === 'GET' && !$id) {
         $params[':exact'] = $search;
     }
     if ($alerte === '1') {
-        $sql .= " AND p.Quantite_disponible < COALESCE(p.seuil_min_manuel, ROUND(p.stock_max * ph.seuil_min_pct_general / 100))";
+        $sql .= " AND p.Quantite_disponible < COALESCE(p.seuil_alerte_manuel, p.seuil_min_manuel, ROUND(p.stock_max * ph.seuil_min_pct_general / 100))";
     }
     $sql .= " ORDER BY p.nom_du_produit";
     $stmt = $pdo->prepare($sql);
