@@ -130,14 +130,24 @@ if (method() === 'POST') {
         }
 
         // Si un produit reçu n'est pas encore dans le stock de la pharmacie, on l'y rattache
-        // avant que tg_maj_stock_bl ne mette à jour Quantite_disponible
+        // avant que tg_maj_stock_bl ne mette à jour Quantite_disponible.
+        // Si le produit est nouveau pour cette pharmacie, on remet Quantite_disponible à 0
+        // pour que le trigger n'ajoute que la qte réellement reçue (et non stock_global + qte_recue).
         $stmtPh = $pdo->prepare("SELECT Id_pharmacie FROM Commande WHERE id_commande = ?");
         $stmtPh->execute([$b['id_commande']]);
         $id_pharmacie_bl = $stmtPh->fetchColumn();
         if ($id_pharmacie_bl) {
-            $stmtPro = $pdo->prepare("INSERT IGNORE INTO Proposer(Id_pharmacie, id_produit) VALUES(?,?)");
+            $stmtCheck = $pdo->prepare("SELECT COUNT(*) FROM Proposer WHERE Id_pharmacie = ? AND id_produit = ?");
+            $stmtPro   = $pdo->prepare("INSERT IGNORE INTO Proposer(Id_pharmacie, id_produit) VALUES(?,?)");
+            $stmtReset = $pdo->prepare("UPDATE Produit SET Quantite_disponible = 0 WHERE id_produit = ?");
             foreach ($lignesFinales as $l) {
                 if ($l['rec'] > 0) {
+                    $stmtCheck->execute([$id_pharmacie_bl, $l['id_produit']]);
+                    $existait = (int)$stmtCheck->fetchColumn() > 0;
+                    if (!$existait) {
+                        // Produit nouveau pour cette pharmacie : reset à 0 avant réception
+                        $stmtReset->execute([$l['id_produit']]);
+                    }
                     $stmtPro->execute([$id_pharmacie_bl, $l['id_produit']]);
                 }
             }
