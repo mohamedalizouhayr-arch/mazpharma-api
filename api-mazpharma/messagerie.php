@@ -55,8 +55,56 @@ if (method() === 'POST') {
         ':ph'      => $id_pharmacie,
         ':contenu' => $contenu,
     ]);
+    $id_message = (int)$pdo->lastInsertId();
 
-    jsonResponse(['id_message' => (int)$pdo->lastInsertId()], 201);
+    // Récupérer le nom de l'expéditeur
+    $stmtNom = $pdo->prepare("
+        SELECT COALESCE(p.Prenom, a.prenom, c.Nom_d_utilisateur) AS prenom,
+               COALESCE(p.Nom, a.nom, '') AS nom
+          FROM Compte c
+          LEFT JOIN Personnel p ON p.id_compte = c.id_compte
+          LEFT JOIN Admin     a ON a.id_compte = c.id_compte
+         WHERE c.id_compte = :id LIMIT 1
+    ");
+    $stmtNom->execute([':id' => $payload['id']]);
+    $exp  = $stmtNom->fetch();
+    $nomExp = trim(($exp['prenom'] ?? '') . ' ' . ($exp['nom'] ?? '')) ?: 'Quelqu\'un';
+
+    // Envoyer push notification à tous les autres users de la pharmacie
+    $stmtTok = $pdo->prepare("
+        SELECT pt.token
+          FROM Push_Token pt
+          JOIN Compte c ON c.id_compte = pt.id_compte
+         WHERE c.id_compte IN (
+             SELECT id_compte FROM Personnel WHERE Id_pharmacie = :ph
+             UNION
+             SELECT id_compte FROM Admin WHERE Id_pharmacie = :ph
+         )
+           AND pt.id_compte <> :moi
+    ");
+    $stmtTok->execute([':ph' => $id_pharmacie, ':moi' => $payload['id']]);
+    $tokens = array_column($stmtTok->fetchAll(), 'token');
+
+    if (!empty($tokens)) {
+        $messages = array_map(fn($t) => [
+            'to'    => $t,
+            'title' => "💬 $nomExp",
+            'body'  => mb_strlen($contenu) > 100 ? mb_substr($contenu, 0, 97) . '...' : $contenu,
+            'sound' => 'default',
+            'data'  => ['screen' => 'messagerie'],
+        ], $tokens);
+
+        @file_get_contents('https://exp.host/--/api/v2/push/send', false,
+            stream_context_create(['http' => [
+                'method'  => 'POST',
+                'header'  => "Content-Type: application/json\r\nAccept: application/json\r\n",
+                'content' => json_encode($messages),
+                'timeout' => 3,
+            ]])
+        );
+    }
+
+    jsonResponse(['id_message' => $id_message], 201);
 }
 
 jsonResponse(['error' => 'Méthode non supportée'], 405);
