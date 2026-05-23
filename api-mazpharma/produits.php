@@ -126,7 +126,7 @@ if (method() === 'POST') {
 
 // ----- PUT seuil global : applique seuil_min_manuel aux produits de la pharmacie -----
 if (method() === 'PUT' && !$id && q('action') === 'seuil_global') {
-    $payload      = requireRole(['ADMIN', 'SUPERADMIN']);
+    $payload      = requireRole(['ADMIN', 'SUPERADMIN', 'USER']);
     $id_pharmacie = getPharmacieId($pdo, $payload);
     $b     = jsonBody();
     $seuil = (int)($b['seuil'] ?? 0);
