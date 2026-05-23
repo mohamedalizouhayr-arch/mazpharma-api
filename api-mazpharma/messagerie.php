@@ -86,22 +86,27 @@ if (method() === 'POST') {
     $tokens = array_column($stmtTok->fetchAll(), 'token');
 
     if (!empty($tokens)) {
-        $messages = array_map(fn($t) => [
-            'to'    => $t,
-            'title' => "💬 $nomExp",
-            'body'  => mb_strlen($contenu) > 100 ? mb_substr($contenu, 0, 97) . '...' : $contenu,
-            'sound' => 'default',
-            'data'  => ['screen' => 'messagerie'],
-        ], $tokens);
+        try {
+            $payload_push = array_map(function($t) use ($nomExp, $contenu) {
+                return [
+                    'to'    => $t,
+                    'title' => "💬 " . $nomExp,
+                    'body'  => mb_strlen($contenu) > 100 ? mb_substr($contenu, 0, 97) . '...' : $contenu,
+                    'sound' => 'default',
+                    'data'  => ['screen' => 'messagerie'],
+                ];
+            }, $tokens);
 
-        @file_get_contents('https://exp.host/--/api/v2/push/send', false,
-            stream_context_create(['http' => [
-                'method'  => 'POST',
-                'header'  => "Content-Type: application/json\r\nAccept: application/json\r\n",
-                'content' => json_encode($messages),
-                'timeout' => 3,
-            ]])
-        );
+            $ch = curl_init('https://exp.host/--/api/v2/push/send');
+            curl_setopt($ch, CURLOPT_POST,           true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS,     json_encode($payload_push));
+            curl_setopt($ch, CURLOPT_HTTPHEADER,     ['Content-Type: application/json', 'Accept: application/json']);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT,        3);
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
+            curl_exec($ch);
+            curl_close($ch);
+        } catch (Exception $e) { /* push non bloquant : on ignore l'erreur */ }
     }
 
     jsonResponse(['id_message' => $id_message], 201);
