@@ -57,36 +57,48 @@ if (method() === 'POST') {
     ]);
     $id_message = (int)$pdo->lastInsertId();
 
-    // Récupérer le nom de l'expéditeur
-    $stmtNom = $pdo->prepare("
-        SELECT COALESCE(p.Prenom, a.prenom, c.Nom_d_utilisateur) AS prenom,
-               COALESCE(p.Nom, a.nom, '') AS nom
-          FROM Compte c
-          LEFT JOIN Personnel p ON p.id_compte = c.id_compte
-          LEFT JOIN Admin     a ON a.id_compte = c.id_compte
-         WHERE c.id_compte = :id LIMIT 1
-    ");
-    $stmtNom->execute([':id' => $payload['id']]);
-    $exp  = $stmtNom->fetch();
-    $nomExp = trim(($exp['prenom'] ?? '') . ' ' . ($exp['nom'] ?? '')) ?: 'Quelqu\'un';
+    // Répondre immédiatement au client avant de faire le push
+    ob_clean();
+    http_response_code(201);
+    echo json_encode(['id_message' => $id_message], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-    // Envoyer push notification à tous les autres users de la pharmacie
-    $stmtTok = $pdo->prepare("
-        SELECT pt.token
-          FROM Push_Token pt
-          JOIN Compte c ON c.id_compte = pt.id_compte
-         WHERE c.id_compte IN (
-             SELECT id_compte FROM Personnel WHERE Id_pharmacie = :ph
-             UNION
-             SELECT id_compte FROM Admin WHERE Id_pharmacie = :ph
-         )
-           AND pt.id_compte <> :moi
-    ");
-    $stmtTok->execute([':ph' => $id_pharmacie, ':moi' => $payload['id']]);
-    $tokens = array_column($stmtTok->fetchAll(), 'token');
+    // Fermer la connexion HTTP → le client reçoit la réponse maintenant
+    if (function_exists('fastcgi_finish_request')) {
+        fastcgi_finish_request();
+    } else {
+        header('Content-Length: ' . ob_get_length());
+        header('Connection: close');
+        ob_end_flush();
+        flush();
+    }
 
-    if (!empty($tokens)) {
-        try {
+    // Push notification envoyé APRÈS la réponse → ne bloque plus le client
+    try {
+        $stmtNom = $pdo->prepare("
+            SELECT COALESCE(p.Prenom, a.prenom, c.Nom_d_utilisateur) AS prenom,
+                   COALESCE(p.Nom, a.nom, '') AS nom
+              FROM Compte c
+              LEFT JOIN Personnel p ON p.id_compte = c.id_compte
+              LEFT JOIN Admin     a ON a.id_compte = c.id_compte
+             WHERE c.id_compte = :id LIMIT 1
+        ");
+        $stmtNom->execute([':id' => $payload['id']]);
+        $exp    = $stmtNom->fetch();
+        $nomExp = trim(($exp['prenom'] ?? '') . ' ' . ($exp['nom'] ?? '')) ?: 'Quelqu\'un';
+
+        $stmtTok = $pdo->prepare("
+            SELECT pt.token FROM Push_Token pt
+             WHERE pt.id_compte IN (
+                 SELECT id_compte FROM Personnel WHERE Id_pharmacie = :ph
+                 UNION
+                 SELECT id_compte FROM Admin WHERE Id_pharmacie = :ph
+             )
+               AND pt.id_compte <> :moi
+        ");
+        $stmtTok->execute([':ph' => $id_pharmacie, ':moi' => $payload['id']]);
+        $tokens = array_column($stmtTok->fetchAll(), 'token');
+
+        if (!empty($tokens)) {
             $payload_push = array_map(function($t) use ($nomExp, $contenu) {
                 return [
                     'to'    => $t,
@@ -102,14 +114,14 @@ if (method() === 'POST') {
             curl_setopt($ch, CURLOPT_POSTFIELDS,     json_encode($payload_push));
             curl_setopt($ch, CURLOPT_HTTPHEADER,     ['Content-Type: application/json', 'Accept: application/json']);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_TIMEOUT,        3);
-            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
+            curl_setopt($ch, CURLOPT_TIMEOUT,        5);
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
             curl_exec($ch);
             curl_close($ch);
-        } catch (Exception $e) { /* push non bloquant : on ignore l'erreur */ }
-    }
+        }
+    } catch (Exception $e) { /* silencieux */ }
 
-    jsonResponse(['id_message' => $id_message], 201);
+    exit;
 }
 
 jsonResponse(['error' => 'Méthode non supportée'], 405);
