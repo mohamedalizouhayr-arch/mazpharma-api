@@ -24,7 +24,7 @@ if (method() === 'GET' && !$id && q('action') === 'catalogue') {
 
 // ----- GET liste -----
 if (method() === 'GET' && !$id) {
-    $payload     = requireRole(['ADMIN', 'USER', 'SUPERADMIN']);
+    $payload     = requireRole(['ADMIN', 'USER']);
     $id_pharmacie = getPharmacieId($pdo, $payload);
 
     $search = q('search');
